@@ -1,6 +1,6 @@
 [package]
 name = "delta-l"
-version = "1.0.1"
+version = "1.0.2"
 authors = ["LFalch <lucas@wasd.dk>"]
 
 [[bin]]
