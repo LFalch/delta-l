@@ -1,0 +1,8 @@
+[package]
+name = "delta-l"
+version = "1.0.1"
+authors = ["LFalch <lucas@wasd.dk>"]
+
+[[bin]]
+name = "delta-l"
+doc = false
