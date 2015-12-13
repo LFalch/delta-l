@@ -8,7 +8,7 @@ use std::string::String;
 use std::io::ErrorKind::NotFound;
 
 fn main() {
-    let args = &*&env::args().collect::<Vec<String>>()[1..];
+    let args = &env::args().collect::<Vec<String>>()[1..];
 
     if args.len() < 2 {
         return incorrect_syntax()
@@ -28,8 +28,6 @@ fn main() {
 
     let mut to_file   : Option<usize> = None;
     let mut passphrase: Option<usize> = None;
-
-
 
     for (index, arg) in args.iter().enumerate(){
         // if index == 0 {continue} // default of a usize is 0 so this line is essentially down there.
@@ -89,12 +87,12 @@ Usage:
     delta-l -?
 
 Modes:
-    encrypt
-    decrypt
+    encrypt             Encrypts a file
+    decrypt             Decrypts a file
 
 Options:
-    -p <passphrase>  Encrypts/decrypts with a passphrase.
-    -t <output-file> Specifies the output file."#;
+    -p <passphrase>     Encrypts/decrypts with a passphrase.
+    -t <output-file>    Specifies the output file."#;
 
 fn incorrect_syntax(){
     println!("Incorrect syntax:\n\nType delta-l -? for help")
