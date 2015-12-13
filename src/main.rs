@@ -10,44 +10,39 @@ use std::io::ErrorKind::NotFound;
 fn main() {
     let args = &*&env::args().collect::<Vec<String>>()[1..];
 
-    if args.len() < 1 {
-        return incorrect_syntax();
+    if args.len() < 2 {
+        return incorrect_syntax()
     }
 
-    let file_path = match &*args[0]{
+    let file_path = match &*args[1]{
         "-?"|"-h"|"--help" => return println!("{}", USAGE),
         some => some,
     }.to_string();
 
-    let mut dlb = DeltaLBuilder::new();
+    let mut dlb = DeltaLBuilder::new()
+        .mode(match &*args[0]{
+            "e"|"encrypt" => Encrypt,
+            "d"|"decrypt" => Decrypt,
+            _ => return incorrect_syntax()
+        });
 
-    let mut mode      : Option<Mode > = None;
     let mut to_file   : Option<usize> = None;
     let mut passphrase: Option<usize> = None;
 
+
+
     for (index, arg) in args.iter().enumerate(){
         // if index == 0 {continue} // default of a usize is 0 so this line is essentially down there.
-
-        if index == to_file.unwrap_or_default(){
-            continue;
+        if index == 1{
+            continue
+        }else if index == to_file   .unwrap_or_default(){
+            continue
         }else if index == passphrase.unwrap_or_default(){
-            continue;
+            continue
         }
 
         if arg[0..1].eq("-"){
-            match &arg[ 1..arg.len() ] {
-                "e"|"-encrypt" =>
-                    if let None = mode {
-                        mode = Some(Encrypt)
-                    } else {
-                        return incorrect_syntax()
-                    },
-                "d"|"-decrypt" =>
-                    if let None = mode {
-                        mode = Some(Decrypt)
-                    } else {
-                        return incorrect_syntax()
-                    },
+            match &arg[1..] {
                 "p" =>
                     if let None = passphrase {
                         passphrase = Some(index+1)
@@ -62,14 +57,10 @@ fn main() {
                     },
                 _ => return incorrect_syntax()
             }
+        }else{
+            return incorrect_syntax()
         }
     }
-
-
-    dlb = match mode {
-        Some(m) => dlb.mode(m),
-        None    => return incorrect_syntax(),
-    };
 
     if let Some(i) = passphrase{
         dlb = dlb.coding(Coding::new_offset(&args[i]))
@@ -94,15 +85,15 @@ fn main() {
 const USAGE: &'static str = r#"Delta L encryption program
 
 Usage:
-    delta-l <file> <mode> [options]
+    delta-l <mode> <file> [options]
     delta-l -?
 
 Modes:
-    -e, --encrypt
-    -d, --decrypt
+    encrypt
+    decrypt
 
 Options:
-    -p <passphrase>  Encrypts with a passphrase.
+    -p <passphrase>  Encrypts/decrypts with a passphrase.
     -t <output-file> Specifies the output file."#;
 
 fn incorrect_syntax(){
