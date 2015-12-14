@@ -113,7 +113,7 @@ fn code(p: &str, to: &str, force_overwite: bool, dl: DeltaL) -> std::io::Result<
         }
     }
     // If the Result is Ok(x), map it with Some so as to return Ok(Some(x))
-    code_to(p, to, dl).map(Some)
+    dl.execute(p, to).map(Some)
 }
 
 const USAGE: &'static str = r#"Delta L encryption program
