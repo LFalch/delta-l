@@ -123,8 +123,6 @@ impl DeltaL{
                     coded_buffer.push(108);
                     coded_buffer.push(10); // Push a newline
                 }
-
-                println!("{:?}", coded_buffer);
             } else {
                 if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
                     match buffer[2]{
