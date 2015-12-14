@@ -12,8 +12,8 @@ use std::io::{Result, Read, Write};
 // Bundle the Mode and Variation together
 #[derive(Debug, Copy, Clone)]
 pub struct DeltaL{
-    pub mode  : Mode,
-    pub coding: Coding
+    mode  : Mode,
+    coding: Coding
 }
 
 impl DeltaL{
@@ -30,6 +30,14 @@ impl DeltaL{
         }else{
             Wrapping(b) - Wrapping(self.coding.get_offset(i))
         }.0
+    }
+
+    pub fn get_mode_standard_extension(&self) -> &'static str{
+        self.mode.get_standard_extension()
+    }
+
+    pub fn mode(&self) -> &Mode{
+        &self.mode
     }
 }
 
@@ -145,14 +153,6 @@ impl Default for Coding{
     fn default() -> Coding{
         Pure
     }
-}
-
-/// Codes the file to a file using the same path with an appended ".delta" or ".dec"
-/// Returns the path to the encoded file as a String
-pub fn code<P: AsRef<Path>>(p: P, dl: DeltaL) -> Result<String>{
-    let to = format!("{}{}", p.as_ref().to_str().unwrap(), dl.mode.get_standard_extension());
-
-    code_to(p, to, dl)
 }
 
 /// Codes the file in from_path to the file in to_path
