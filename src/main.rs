@@ -23,12 +23,11 @@ fn main() {
 
     let file_path = &*args[1];
 
-    let mut dlb = DeltaLBuilder::new()
-        .mode(match &*args[0]{
-            "e"|"encrypt" => Encrypt,
-            "d"|"decrypt" => Decrypt,
-            _ => return incorrect_syntax()
-        });
+    let mut dl = DeltaL::new(match &*args[0]{
+        "e"|"encrypt" => Encrypt,
+        "d"|"decrypt" => Decrypt,
+        _ => return incorrect_syntax()
+    });
 
     let mut to_file   : Option<usize> = None;
     let mut passphrase: Option<usize> = None;
@@ -69,10 +68,8 @@ fn main() {
     }
 
     if let Some(i) = passphrase{
-        dlb = dlb.coding(Coding::new_offset(&args[i]))
+        dl.set_passphrase(&args[i])
     }
-
-    let dl = dlb.build().unwrap(); // Unwrap should be safe since it would've had an incorrect syntax error, if mode wasn't specified
 
     let res = match to_file {
         Some(i) => code(file_path, &args[i], force_overwite, dl),
@@ -88,7 +85,7 @@ fn main() {
             NotFound => println!("Couldn't find the specified file.\nPlease make sure the file exists."),
             _        => println!("An unknown error occured, encrypting the file:\n{:?}", e)
         },
-        Ok(None) => println!("{}cryption has been cancelled.", if dl.mode().is_encrypt() {"En"} else {"De"}),
+        Ok(None) => println!("{}cryption has been cancelled.", if dl.is_mode_encrypt() {"En"} else {"De"}),
     }
 }
 

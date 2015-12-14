@@ -1,6 +1,5 @@
 //! Crate for using Delta-L encryption
 #![warn(missing_docs)]
-pub use Coding::{Pure, Offset};
 pub use Mode::{Encrypt, Decrypt};
 
 use std::hash::{Hash, Hasher, SipHasher};
@@ -13,36 +12,49 @@ use std::io::{Result, Read, Write};
 /// Provides interface for Delta-L encryption/decryption
 #[derive(Debug, Copy, Clone)]
 pub struct DeltaL{
-    mode  : Mode,
-    coding: Coding
+    mode     : Mode,
+    offsetter: Offsetter
 }
 
 impl DeltaL{
     /// Creates a DeltaL instance
-    pub fn new(mode: Mode, coding: Coding) -> DeltaL{
+    pub fn new(mode: Mode) -> DeltaL{
         DeltaL{
-            mode  : mode,
-            coding: coding
+            mode     : mode,
+            offsetter: Offsetter::new_pure()
         }
     }
 
-    /// Calculates the offset on the index and adds that the byte to then return it
-    pub fn offset(&self, b: u8, i: usize) -> u8{
+    /// Sets a passphrase for the DeltaL
+    pub fn set_passphrase(&mut self, passphrase: &str){
+        *self = DeltaL{
+            offsetter: Offsetter::new(passphrase),
+            ..
+            *self
+        }
+    }
+
+    fn offset(&self, b: u8, i: usize) -> u8{
         if self.mode.is_encrypt(){
-            Wrapping(b) + Wrapping(self.coding.get_offset(i))
+            Wrapping(b) + Wrapping(self.offsetter.get_offset(i))
         }else{
-            Wrapping(b) - Wrapping(self.coding.get_offset(i))
+            Wrapping(b) - Wrapping(self.offsetter.get_offset(i))
         }.0
     }
 
-    /// Gets the standard extension of the `Mode` (See `Mode` documentation)
+    /// Returns ".delta" for encryption and ".dec" for decryption
     pub fn get_mode_standard_extension(&self) -> &'static str{
         self.mode.get_standard_extension()
     }
 
-    /// Returns the mode field
-    pub fn mode(&self) -> &Mode{
-        &self.mode
+    /// Returns whether the mode is `Encrypt`
+    pub fn is_mode_encrypt(&self) -> bool{
+        self.mode.is_encrypt()
+    }
+
+    /// Returns whether the mode is `Decrypt`
+    pub fn is_mode_decrypt(&self) -> bool{
+        self.mode.is_decrypt()
     }
 
     /// Codes the file in from_path to the file in to_path
@@ -58,9 +70,7 @@ impl DeltaL{
             // (The amount of bytes read gets returned by read_to_end).
             try!(f.read_to_end(&mut buffer));
 
-
             // TODO HEADER
-
 
             // Create buffer for holding the coded bytes
             let mut coded_buffer = Vec::<u8>::new();
@@ -96,70 +106,10 @@ impl DeltaL{
         // Returns that all went well, if nothing went wrong
         Ok(to_path.as_ref().to_str().unwrap().to_string())
     }
-
 }
 
 const DELTA: char = 'Δ';
-
-/// A struct for conveniently making a `DeltaL` instance
-pub struct DeltaLBuilder{
-    mode  : Option<Mode>,
-    coding: Option<Coding>
-}
-
-impl DeltaLBuilder{
-    /// Instantiates a `DeltaLBuilder` object
-    pub fn new() -> DeltaLBuilder{
-        DeltaLBuilder{
-            mode: None,
-            coding: None,
-        }
-    }
-
-    /// Specifies the `Mode` of the to-be-built `DeltaL`
-    pub fn mode(self, m: Mode) -> DeltaLBuilder{
-        DeltaLBuilder{
-            mode: Some(m),
-            ..
-            self
-        }
-    }
-
-    /// Specifies the `Coding` of the to-be-built `DeltaL`
-    pub fn coding(self, c: Coding) -> DeltaLBuilder{
-        DeltaLBuilder{
-            coding: Some(c),
-            ..
-            self
-        }
-    }
-
-    /// Creates a `DeltaL` if all fields have been specified, otherwise `None`
-    pub fn build(self) -> Option<DeltaL>{
-        if let Some(mode) = self.mode{
-            Some(DeltaL{
-                mode  : mode,
-                coding: self.coding.unwrap_or_default(),
-            })
-        }else{
-            None
-        }
-    }
-}
-
-/// Specifies whether to use a passphrase or not
-#[derive(Debug, Copy, Clone)]
-pub enum Coding {
-    /// A coding without passphrase
-    Pure,
-    /// A coding that uses a hash generated from a passphrase
-    Offset{
-        /// The hash of the passphrase as a byte array, to be used as offsets
-        passhash: [u8; 8]
-    },
-}
-
-/// Specifies whether to en- or decrypt
+/// Specifies whether to encrypt or decrypt
 #[derive(Debug, Copy, Clone)]
 pub enum Mode{
     /// Specifies that we're encrypting
@@ -169,22 +119,19 @@ pub enum Mode{
 }
 
 impl Mode {
-    /// Returns ".delta" for encryption and ".dec" for decryption
-    pub fn get_standard_extension(&self) -> &'static str{
+    fn get_standard_extension(&self) -> &'static str{
         match *self{
             Encrypt => ".delta",
             Decrypt => ".dec",
         }
     }
-    /// Returns whether the Mode is Encrypt
-    pub fn is_encrypt(&self) -> bool{
+    fn is_encrypt(&self) -> bool{
         match *self{
             Encrypt => true,
             _       => false, // To emphasise that every other value wouldn't be Encrypt
         }
     }
-    /// Returns whether the Mode is Decrypt
-    pub fn is_decrypt(&self) -> bool{
+    fn is_decrypt(&self) -> bool{
         match *self{
             Decrypt => true,
             _       => false, // To emphasise that every other value wouldn't be Decrypt
@@ -192,38 +139,30 @@ impl Mode {
     }
 }
 
-impl Coding {
-    /// New `Offset` variant of `Coding`
-    pub fn new_offset(passphrase: &str) -> Coding{
+#[derive(Debug, Copy, Clone)]
+struct Offsetter{
+    passhash: [u8; 8]
+}
+
+impl Offsetter {
+    pub fn new(passphrase: &str) -> Offsetter{
         let mut siphasher = SipHasher::new();
         passphrase.hash(&mut siphasher);
 
-        Offset{
+        Offsetter{
             passhash: unsafe{
                 std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())
             }
         }
     }
 
-    /// Returns the offset for a given index
+    pub fn new_pure() -> Offsetter{
+        Offsetter{
+            passhash: [0; 8]
+        }
+    }
+
     pub fn get_offset(&self, i: usize) -> u8{
-        match *self{
-            Pure => 0,
-            Offset{passhash: ref hash} => hash[i % 8]
-        }
-    }
-
-    /// Returns whether this is the variant `Pure`
-    pub fn is_pure(&self) -> bool{
-        match *self{
-            Pure => true,
-            _    => false, // To emphasise that every other value wouldn't be Pure
-        }
-    }
-}
-
-impl Default for Coding{
-    fn default() -> Coding{
-        Pure
+        self.passhash[i % 8]
     }
 }
