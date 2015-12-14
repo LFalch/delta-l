@@ -17,7 +17,7 @@ fn main() {
     let file_path = match &*args[1]{
         "-?"|"-h"|"--help" => return println!("{}", USAGE),
         some => some,
-    }.to_string();
+    };
 
     let mut dlb = DeltaLBuilder::new()
         .mode(match &*args[0]{
@@ -29,13 +29,10 @@ fn main() {
     let mut to_file   : Option<usize> = None;
     let mut passphrase: Option<usize> = None;
 
-    for (index, arg) in args.iter().enumerate(){
-        // if index == 0 {continue} // default of a usize is 0 so this line is essentially down there.
-        if index == 1{
-            continue
-        }else if index == to_file   .unwrap_or_default(){
-            continue
-        }else if index == passphrase.unwrap_or_default(){
+    for (index, arg) in args.iter().skip(2).enumerate().map(|(i, x)| (i+2, x)){
+        // if index == 0 {continue} // default of a usize is 0 so this line is essentially down there. Also
+
+        if index == to_file.unwrap_or_default() || index == passphrase.unwrap_or_default(){
             continue
         }
 
@@ -66,14 +63,14 @@ fn main() {
 
     let dl = dlb.build().unwrap(); // Unwrap should be safe since it would've had an incorrect syntax error, if mode wasn't specified
 
-    let res = match to_file{
+    let res = match to_file {
         Some(i) => code_to(file_path, &args[i], dl),
         None    => code   (file_path,           dl)
     };
 
-    match res{
+    match res {
         Ok (path) => println!("Result file has been saved to {}", path),
-        Err( e  ) => match e.kind(){
+        Err( e  ) => match e.kind() {
             NotFound => println!("Couldn't find the specified file.\nPlease make sure the file exists."),
             _        => println!("An unknown error occured, encrypting the file:\n{:?}", e)
         },
@@ -97,12 +94,3 @@ Options:
 fn incorrect_syntax(){
     println!("Incorrect syntax:\n\nType delta-l -? for help")
 }
-
-/*fn get_v_args() -> Box<[String]>{
-    let mut v_args = Vec::new();
-
-    for argument in env::args().skip(1) {
-        v_args.push(argument);
-    }
-    v_args.into_boxed_slice()
-}*/

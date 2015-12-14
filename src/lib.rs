@@ -24,7 +24,7 @@ impl DeltaL{
         }
     }
 
-    pub fn offset(&self, b: u8, i: &usize) -> u8{
+    pub fn offset(&self, b: u8, i: usize) -> u8{
         if self.mode.is_encrypt(){
             Wrapping(b) + Wrapping(self.coding.get_offset(i))
         }else{
@@ -126,10 +126,10 @@ impl Coding {
         }
     }
 
-    pub fn get_offset(&self, i: &usize) -> u8{
+    pub fn get_offset(&self, i: usize) -> u8{
         match *self{
             Pure => 0,
-            Offset{passhash: ref hash} => hash[*i % 8]
+            Offset{passhash: ref hash} => hash[i % 8]
         }
     }
 
@@ -151,9 +151,8 @@ impl Default for Coding{
 /// Returns the path to the encoded file as a String
 pub fn code<P: AsRef<Path>>(p: P, dl: DeltaL) -> Result<String>{
     let to = format!("{}{}", p.as_ref().to_str().unwrap(), dl.mode.get_standard_extension());
-    try!(code_to(p, &to, dl));
 
-    Ok(to)
+    code_to(p, to, dl)
 }
 
 /// Codes the file in from_path to the file in to_path
@@ -165,27 +164,30 @@ pub fn code_to<FP: AsRef<Path>, TP: AsRef<Path>>(from_path: FP, to_path: TP, dl:
         // Create buffer for holding the bytes of the file
         let mut buffer = Vec::<u8>::new();
 
-        // Reading the file into the buffer, and storing the length
+        // Reading the file into the buffer
         // (The amount of bytes read gets returned by read_to_end).
-        let _len = try!(f.read_to_end(&mut buffer));
+        try!(f.read_to_end(&mut buffer));
 
         // Create buffer for holding the coded bytes
         let mut coded_buffer = Vec::<u8>::new();
 
-        // Loop over every byte in the file buffer, along with the index of that byte
-        for (i, b) in buffer.iter().enumerate(){
-            if i == 0{
-                // The first byte of the coded file will be the same, since there was no previous byte (plus/minus the offset)
-                coded_buffer.push(dl.offset(*b, &i))
-            }else{
-                // Adds/substracts (Adds during encryption, and the opposite during the opposite) the byte with the previous, using Wrapping to ignore over- and underflow (plus/minus the offset)
-                let Wrapping(result) = match dl.mode {
-                    Encrypt => Wrapping(dl.offset(*b, &i)) + Wrapping(buffer[i-1]),
-                    Decrypt => Wrapping(dl.offset(*b, &i)) - Wrapping(coded_buffer[i-1]),
-                };
+        let mut buffer_iter = buffer.iter().enumerate();
 
-                coded_buffer.push(result)
-            }
+        // Handle the first byte specially outside for loop
+        match buffer_iter.next(){
+            Some((i, b)) => coded_buffer.push(dl.offset(*b, i)),
+            None => ()
+        }
+
+        // Loop over every byte in the file buffer, along with the index of that byte
+        for (i, b) in buffer_iter{
+            // Adds/substracts (adds during encryption, and the opposite during the opposite) the byte with the previous, using Wrapping to ignore over- and underflow (plus/minus the offset)
+            let Wrapping(result) = match dl.mode {
+                Encrypt => Wrapping(dl.offset(*b, i)) + Wrapping(buffer[i-1]),
+                Decrypt => Wrapping(dl.offset(*b, i)) - Wrapping(coded_buffer[i-1]),
+            };
+
+            coded_buffer.push(result)
         }
 
         coded_buffer
@@ -195,7 +197,7 @@ pub fn code_to<FP: AsRef<Path>, TP: AsRef<Path>>(from_path: FP, to_path: TP, dl:
     let mut result_file = try!(File::create(&to_path));
 
     // Writes the coded buffer into the file
-    try!(result_file.write_all(&*coded_buffer.into_boxed_slice()));
+    try!(result_file.write_all(&coded_buffer));
 
     // Returns that all went well, if nothing went wrong
     Ok(to_path.as_ref().to_str().unwrap().to_string())
