@@ -8,10 +8,14 @@ use std::string::String;
 use std::io::ErrorKind::NotFound;
 
 fn main() {
+    if env::args().len() < 2 { // The raw args contain the programme itself too, which is ommited in the args variable defined below.
+        return incorrect_syntax()
+    }
+
     let args = &env::args().collect::<Vec<String>>()[1..];
 
     if args.len() < 2 {
-        match &*args[0]{
+        match &*args[0] {
             "-?"|"-h"|"--help" => return println!("{}", USAGE),
             _                  => return incorrect_syntax(),
         }
