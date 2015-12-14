@@ -115,10 +115,11 @@ fn code(p: &str, to: &str, force_overwite: bool, dl: DeltaL) -> DLResult<Option<
         println!("Output file already exists; do you want to overwrite (yes/no)?");
 
         let stdin = std::io::stdin();
-        let mut answer = String::new();
 
         loop{
+            let mut answer = String::new();
             try!(stdin.read_line(&mut answer));
+
             match answer.trim().as_ref(){
                 "yes" => break,
                 "no"  => return Ok(None),
