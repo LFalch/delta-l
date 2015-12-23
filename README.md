@@ -4,7 +4,7 @@ Program that can encrypt and decrypt files.
 
 ## Quick notes and some history
 
-I don't recommend using this encryption algorithm for anything important (see Flaws) –
+I don't recommend using this encryption algorithm for anything important (see Flaws) --
 This was mostly an interesting idea that came to me, so I made it as a little exercise.
 
 Initially, I actually tried to make this in Java, but that project got very messy
