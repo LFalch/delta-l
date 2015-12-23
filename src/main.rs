@@ -1,6 +1,6 @@
 extern crate delta_l;
 
-use delta_l::*;
+use delta_l::{DeltaL, Encrypt, Decrypt, Io, InvalidHeader, ChecksumMismatch, Result as DLResult};
 
 use std::env;
 use std::string::String;

@@ -6,15 +6,21 @@ pub use DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 use std::hash::{Hash, Hasher, SipHasher};
 use std::num::Wrapping;
 
+use std::fmt;
+use std::io;
+use std::io::{Read, Write};
+
 use std::fs::File;
 use std::path::Path;
-use std::io::{Read, Write};
-use std::io;
+
+use std::error::Error;
+use std::result::Result as STDResult;
 
 /// Convinent `Result` type for `DeltaLError`
-pub type DLResult<T> = std::result::Result<T, DeltaLError>;
+pub type Result<T> = std::result::Result<T, DeltaLError>;
 
 /// Decribes errors that can occur doing encryption or decryption
+#[derive(Debug)]
 pub enum DeltaLError{
     /// Errors that are just plain IO errors
     Io(io::Error),
@@ -22,6 +28,26 @@ pub enum DeltaLError{
     InvalidHeader,
     /// Checksum mismatch error
     ChecksumMismatch,
+}
+
+impl fmt::Display for DeltaLError{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        match *self{
+            Io(ref err)      => err.fmt(f),
+            InvalidHeader    => write!(f, "The header was not valid."),
+            ChecksumMismatch => write!(f, "The checksum of the output file did not match the checksum in the header."),
+        }
+    }
+}
+
+impl Error for DeltaLError{
+    fn description(&self) -> &str{
+        match *self{
+            Io(ref err)      => err.description(),
+            InvalidHeader    => "header wasn't valid",
+            ChecksumMismatch => "checksum of output file didn't match header checksum",
+        }
+    }
 }
 
 impl From<io::Error> for DeltaLError{
@@ -47,7 +73,7 @@ impl DeltaL{
     }
 
     /// Enables/disables checksum, if mode is `Encrypt`
-    pub fn set_checksum(&mut self, chcksum: bool) -> Result<(), ()>{
+    pub fn set_checksum(&mut self, chcksum: bool) -> STDResult<(), ()>{
         match self.mode{
             Encrypt{ref mut checksum} => {
                 *checksum = chcksum;
@@ -86,7 +112,7 @@ impl DeltaL{
     }
 
     /// Codes the file in from_path to the file in to_path
-    pub fn execute<FP: AsRef<Path>, TP: AsRef<Path>>(&self, from_path: FP, to_path: TP) -> DLResult<String>{
+    pub fn execute<FP: AsRef<Path>, TP: AsRef<Path>>(&self, from_path: FP, to_path: TP) -> Result<String>{
         let coded_buffer = {
             // Open the file
             let mut f = try!(File::open(&from_path));
