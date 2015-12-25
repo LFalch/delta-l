@@ -14,12 +14,11 @@ use std::fs::File;
 use std::path::Path;
 
 use std::error::Error;
-use std::result::Result as STDResult;
 
-/// Convinent `Result` type for `DeltaLError`
+/// Convenient `Result` type for `DeltaLError`
 pub type Result<T> = std::result::Result<T, DeltaLError>;
 
-/// Decribes errors that can occur doing encryption or decryption
+/// Describes errors that can occur during encryption and decryption
 #[derive(Debug)]
 pub enum DeltaLError{
     /// Errors that are just plain IO errors
@@ -73,13 +72,10 @@ impl DeltaL{
     }
 
     /// Enables/disables checksum, if mode is `Encrypt`
-    pub fn set_checksum(&mut self, chcksum: bool) -> STDResult<(), ()>{
+    pub fn set_checksum(&mut self, chcksum: bool) -> Option<()>{
         match self.mode{
-            Encrypt{ref mut checksum} => {
-                *checksum = chcksum;
-                Ok(())
-            }
-            Decrypt => Err(())
+            Encrypt{ref mut checksum} => Some(*checksum = chcksum),
+            Decrypt => None
         }
     }
 
@@ -114,21 +110,14 @@ impl DeltaL{
     /// Codes the file in from_path to the file in to_path
     pub fn execute<FP: AsRef<Path>, TP: AsRef<Path>>(&self, from_path: FP, to_path: TP) -> Result<String>{
         let coded_buffer = {
-            // Open the file
             let mut f = try!(File::open(&from_path));
-
-            // Create buffer for holding the bytes of the file
             let mut buffer = Vec::<u8>::new();
 
-            // Reading the file into the buffer
-            // (The amount of bytes read gets returned by read_to_end).
             try!(f.read_to_end(&mut buffer));
 
-            // Create buffer for holding the coded bytes
             let mut coded_buffer = Vec::<u8>::new();
 
             let mut skip = 0;
-
             let mut checksum: Option<[u8; 8]> = None;
 
             // Do header related things
@@ -137,7 +126,7 @@ impl DeltaL{
                 coded_buffer.push(206);
                 coded_buffer.push(148);
 
-                // Capital L (76) if checksum is enanbled, lowercase (108) if disabled
+                // Capital L (76) if checksum is enabled, lowercase (108) if disabled
                 if checksum {
                     coded_buffer.push(76);
                     coded_buffer.push(10); // Push a newline
@@ -149,7 +138,7 @@ impl DeltaL{
                     coded_buffer.push(108);
                     coded_buffer.push(10); // Push a newline
                 }
-            } else {
+            } else { // if `Decrypt`
                 if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
                     match buffer[2]{
                         76 if buffer.len() > 11 => {
@@ -166,23 +155,24 @@ impl DeltaL{
                 }
             }
 
-            let mut buffer_iter = buffer.iter().skip(skip).enumerate();
+            {
+                let mut buffer_iter = buffer.iter().map(|b| *b).skip(skip).enumerate();
 
-            // Handle the first byte specially outside for loop
-            match buffer_iter.next(){
-                Some((i, b)) => coded_buffer.push(self.offset(*b, i)),
-                None => ()
-            }
+                // Handle the first byte specially outside for loop
+                if let Some((i, b)) = buffer_iter.next(){
+                    coded_buffer.push(self.offset(b, i))
+                }
 
-            // Loop over every byte in the file buffer, along with the index of that byte
-            for (i, b) in buffer_iter{
-                // Adds/substracts (adds during encryption, and the opposite during the opposite) the byte with the previous, using Wrapping to ignore over- and underflow (plus/minus the offset)
-                let Wrapping(result) = match self.mode {
-                    Encrypt{..} => Wrapping(self.offset(*b, i)) + Wrapping(buffer[i-1]),
-                    Decrypt     => Wrapping(self.offset(*b, i)) - Wrapping(coded_buffer[i-1]),
-                };
+                // Loop over every byte in the file buffer, along with the index of that byte
+                for (i, b) in buffer_iter{
+                    // Adds/substracts the byte (plus/minus the offset) with the previous byte, using Wrapping to ignore over- and underflow
+                    let Wrapping(result) = match self.mode {
+                        Encrypt{..} => Wrapping(self.offset(b, i)) + Wrapping(buffer[i-1]),
+                        Decrypt     => Wrapping(self.offset(b, i)) - Wrapping(coded_buffer[i-1]),
+                    };
 
-                coded_buffer.push(result)
+                    coded_buffer.push(result)
+                }
             }
 
             if let Some(check) = checksum {
@@ -194,13 +184,10 @@ impl DeltaL{
             coded_buffer
         };
 
-        // Creates a file using the input to_path
         let mut result_file = try!(File::create(&to_path));
 
-        // Writes the coded buffer into the file
         try!(result_file.write_all(&coded_buffer));
 
-        // Returns that all went well, if nothing went wrong
         Ok(to_path.as_ref().to_str().unwrap().to_string())
     }
 }
@@ -230,7 +217,7 @@ pub enum Mode{
         /// Specifies whether to enable checksum verification
         checksum: bool
     },
-    /// Specifies that we're encrypting
+    /// Specifies that we're decrypting
     Decrypt,
 }
 
@@ -244,13 +231,13 @@ impl Mode {
     fn is_encrypt(&self) -> bool{
         match *self{
             Encrypt{..} => true,
-            _           => false, // To emphasise that every other value wouldn't be Encrypt
+            _           => false,
         }
     }
     fn is_decrypt(&self) -> bool{
         match *self{
             Decrypt => true,
-            _       => false, // To emphasise that every other value wouldn't be Decrypt
+            _       => false,
         }
     }
 }
@@ -261,7 +248,7 @@ struct Offsetter{
 }
 
 impl Offsetter {
-    pub fn new(passphrase: &str) -> Offsetter{
+    fn new(passphrase: &str) -> Offsetter{
         let mut siphasher = SipHasher::new();
         passphrase.hash(&mut siphasher);
 
@@ -272,13 +259,13 @@ impl Offsetter {
         }
     }
 
-    pub fn new_pure() -> Offsetter{
+    fn new_pure() -> Offsetter{
         Offsetter{
             passhash: [0; 8]
         }
     }
 
-    pub fn get_offset(&self, i: usize) -> u8{
+    fn get_offset(&self, i: usize) -> u8{
         self.passhash[i % 8]
     }
 }
