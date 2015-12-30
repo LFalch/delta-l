@@ -27,4 +27,12 @@ When using a passphrase, the passphrase will be hashed and the hash will
 be used as an extra offset on each byte.
 
 ## Flaws
+
 - This is very fast and should therefore be very easy to break, when using checksum.
+
+## Installation
+
+As of Rust 1.5, it's possible to install this by running:
+```
+cargo install --git https://github.com/LFalch/delta-l.git
+```
