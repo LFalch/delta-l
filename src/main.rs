@@ -31,7 +31,7 @@ fn main() {
 
     let mut to_file   : Option<usize> = None;
     let mut passphrase: Option<usize> = None;
-    let mut checksum  : Option<()>    = None;
+    let mut checksum                 = false;
     let mut force_overwite           = false;
 
     for (index, arg) in args.iter().enumerate().skip(2){
@@ -60,10 +60,10 @@ fn main() {
                         return incorrect_syntax()
                     },
                 "c"|"-checksum" =>
-                    if let None = checksum {
+                    if !checksum {
                         checksum = dl.set_checksum(false);
 
-                        if let None = checksum{
+                        if !checksum{
                             println!("Checksum flag is only available when encrypting.\n");
                             return incorrect_syntax()
                         }
@@ -85,20 +85,20 @@ fn main() {
     let res = match to_file {
         Some(i) => code(file_path, &args[i], force_overwite, dl),
         None    => {
-            let to = format!("{}{}", file_path, dl.get_mode_standard_extension());
+            let to = file_path.to_string() + dl.get_mode_standard_extension();
             code(file_path, &to, force_overwite, dl)
         }
     };
 
     match res {
         Ok(Some(path)) => println!("Result file has been saved to {}", path),
-        Err    ( e  )  => match e {
+        Err(e) => match e {
             Io(e) => match e.kind(){
                 NotFound     => println!("Couldn't find the specified file.\nPlease make sure the file exists."),
                 _            => println!("An unknown error occured, encrypting the file:\n{:?}", e)
             },
-            InvalidHeader    => println!("Invalid header error:\nThe specified file was invalid and might be corrupted."),
-            ChecksumMismatch => println!("Decryption called:\nIncorrect passphrase.")
+            InvalidHeader    => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
+            ChecksumMismatch => println!("Decryption failed:\nIncorrect passphrase.")
         },
         Ok(None) => println!("{}cryption has been cancelled.", if dl.is_mode_encrypt() {"En"} else {"De"}),
     }

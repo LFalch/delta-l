@@ -72,10 +72,12 @@ impl DeltaL{
     }
 
     /// Enables/disables checksum, if mode is `Encrypt`
-    pub fn set_checksum(&mut self, chcksum: bool) -> Option<()>{
-        match self.mode{
-            Encrypt{ref mut checksum} => Some(*checksum = chcksum),
-            Decrypt => None
+    pub fn set_checksum(&mut self, checksum_flag: bool) -> bool{
+        if let Encrypt{ref mut checksum} = self.mode{
+            *checksum = checksum_flag;
+            true
+        }else{
+            false
         }
     }
 
