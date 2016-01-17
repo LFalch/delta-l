@@ -1,7 +1,7 @@
 //! Crate for using Delta-L encryption
 #![warn(missing_docs)]
-pub use Mode::{Encrypt, Decrypt};
-pub use DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
+pub use self::Mode::{Encrypt, Decrypt};
+pub use self::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::hash::{Hash, Hasher, SipHasher};
 use std::num::Wrapping;
@@ -16,7 +16,7 @@ use std::path::Path;
 use std::error::Error;
 
 /// Convenient `Result` type for `DeltaLError`
-pub type Result<T> = std::result::Result<T, DeltaLError>;
+pub type Result<T> = ::std::result::Result<T, DeltaLError>;
 
 /// Describes errors that can occur during encryption and decryption
 #[derive(Debug)]
@@ -55,11 +55,23 @@ impl From<io::Error> for DeltaLError{
     }
 }
 
+/// Specifies whether to encrypt or decrypt
+#[derive(Debug, Copy, Clone)]
+pub enum Mode{
+    /// Specifies that we're encrypting
+    Encrypt{
+        /// Specifies whether to enable checksum verification
+        checksum: bool
+    },
+    /// Specifies that we're decrypting
+    Decrypt,
+}
+
 /// Provides interface for Delta-L encryption/decryption
 #[derive(Debug, Copy, Clone)]
 pub struct DeltaL{
-    mode     : Mode,
-    offsetter: Offsetter,
+    mode    : Mode,
+    passhash: [u8; 8],
 }
 
 impl DeltaL{
@@ -67,7 +79,7 @@ impl DeltaL{
     pub fn new(mode: Mode) -> DeltaL{
         DeltaL{
             mode     : mode,
-            offsetter: Offsetter::new_pure(),
+            passhash: [0; 8],
         }
     }
 
@@ -83,30 +95,31 @@ impl DeltaL{
 
     /// Sets the passphrase for the `DeltaL`
     pub fn set_passphrase(&mut self, passphrase: &str){
-        self.offsetter = Offsetter::new(passphrase)
+        self.passhash = hash_as_array(passphrase)
     }
 
     fn offset(&self, b: u8, i: usize) -> u8{
-        if self.mode.is_encrypt(){
-            Wrapping(b) + Wrapping(self.offsetter.get_offset(i))
+        if self.is_mode_encrypt(){
+            Wrapping(b) + Wrapping(self.passhash[i % 8])
         }else{
-            Wrapping(b) - Wrapping(self.offsetter.get_offset(i))
+            Wrapping(b) - Wrapping(self.passhash[i % 8])
         }.0
     }
 
     /// Returns ".delta" for encryption and ".dec" for decryption
     pub fn get_mode_standard_extension(&self) -> &'static str{
-        self.mode.get_standard_extension()
+        match self.mode{
+            Encrypt{..} => ".delta",
+            Decrypt     => ".dec",
+        }
     }
 
     /// Returns whether the mode is `Encrypt`
     pub fn is_mode_encrypt(&self) -> bool{
-        self.mode.is_encrypt()
-    }
-
-    /// Returns whether the mode is `Decrypt`
-    pub fn is_mode_decrypt(&self) -> bool{
-        self.mode.is_decrypt()
+        match self.mode{
+            Encrypt{..} => true,
+            _           => false,
+        }
     }
 
     /// Codes the file in from_path to the file in to_path
@@ -133,7 +146,7 @@ impl DeltaL{
                     coded_buffer.push(76);
                     coded_buffer.push(10); // Push a newline
 
-                    for b in &hash_vec_u8(&buffer){
+                    for b in &hash_as_array(&buffer){
                         coded_buffer.push(*b)
                     }
                 } else {
@@ -178,7 +191,7 @@ impl DeltaL{
             }
 
             if let Some(check) = checksum {
-                if check != hash_vec_u8(&coded_buffer){
+                if check != hash_as_array(&coded_buffer){
                     return Err(ChecksumMismatch)
                 }
             }
@@ -196,78 +209,12 @@ impl DeltaL{
 
 #[inline]
 fn slice_to_array(slice: &[u8]) -> [u8; 8]{
-    if slice.len() == 8{
-        [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]]
-    }else{
-        unreachable!()
-    }
+    [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]]
 }
 
-#[inline]
-fn hash_vec_u8(vec: &Vec<u8>) -> [u8; 8]{
+fn hash_as_array<T: Hash>(h: T) -> [u8; 8]{
     let mut siphasher = SipHasher::new();
-    vec.hash(&mut siphasher);
+    h.hash(&mut siphasher);
 
-    unsafe {std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())}
-}
-
-/// Specifies whether to encrypt or decrypt
-#[derive(Debug, Copy, Clone)]
-pub enum Mode{
-    /// Specifies that we're encrypting
-    Encrypt{
-        /// Specifies whether to enable checksum verification
-        checksum: bool
-    },
-    /// Specifies that we're decrypting
-    Decrypt,
-}
-
-impl Mode {
-    fn get_standard_extension(&self) -> &'static str{
-        match *self{
-            Encrypt{..} => ".delta",
-            Decrypt     => ".dec",
-        }
-    }
-    fn is_encrypt(&self) -> bool{
-        match *self{
-            Encrypt{..} => true,
-            _           => false,
-        }
-    }
-    fn is_decrypt(&self) -> bool{
-        match *self{
-            Decrypt => true,
-            _       => false,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-struct Offsetter{
-    passhash: [u8; 8]
-}
-
-impl Offsetter {
-    fn new(passphrase: &str) -> Offsetter{
-        let mut siphasher = SipHasher::new();
-        passphrase.hash(&mut siphasher);
-
-        Offsetter{
-            passhash: unsafe{
-                std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())
-            }
-        }
-    }
-
-    fn new_pure() -> Offsetter{
-        Offsetter{
-            passhash: [0; 8]
-        }
-    }
-
-    fn get_offset(&self, i: usize) -> u8{
-        self.passhash[i % 8]
-    }
+    unsafe {::std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())}
 }
