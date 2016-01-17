@@ -1,7 +1,7 @@
 //! Crate for using Delta-L encryption
 #![warn(missing_docs)]
-pub use Mode::{Encrypt, Decrypt};
-pub use DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
+pub use self::Mode::{Encrypt, Decrypt};
+pub use self::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::hash::{Hash, Hasher, SipHasher};
 use std::num::Wrapping;
@@ -16,7 +16,7 @@ use std::path::Path;
 use std::error::Error;
 
 /// Convenient `Result` type for `DeltaLError`
-pub type Result<T> = std::result::Result<T, DeltaLError>;
+pub type Result<T> = ::std::result::Result<T, DeltaLError>;
 
 /// Describes errors that can occur during encryption and decryption
 #[derive(Debug)]
@@ -208,7 +208,7 @@ fn hash_vec_u8(vec: &Vec<u8>) -> [u8; 8]{
     let mut siphasher = SipHasher::new();
     vec.hash(&mut siphasher);
 
-    unsafe {std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())}
+    unsafe {::std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())}
 }
 
 /// Specifies whether to encrypt or decrypt
@@ -256,7 +256,7 @@ impl Offsetter {
 
         Offsetter{
             passhash: unsafe{
-                std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())
+                ::std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())
             }
         }
     }

@@ -1,6 +1,8 @@
-extern crate delta_l;
+mod dl;
 
-use delta_l::{DeltaL, Encrypt, Decrypt, Io, InvalidHeader, ChecksumMismatch, Result as DLResult};
+use dl::{DeltaL, Result as DLResult};
+use dl::Mode::{Encrypt, Decrypt};
+use dl::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::env;
 use std::string::String;
