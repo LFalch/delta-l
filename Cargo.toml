@@ -2,7 +2,3 @@
 name = "delta-l"
 version = "1.3.2"
 authors = ["LFalch <lucas@wasd.dk>"]
-
-[[bin]]
-name = "delta-l"
-doc = false
