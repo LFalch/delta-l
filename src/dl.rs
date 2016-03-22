@@ -3,7 +3,7 @@
 pub use self::Mode::{Encrypt, Decrypt};
 pub use self::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 
-use std::hash::{Hash, Hasher, SipHasher};
+use std::hash::{Hasher, SipHasher};
 use std::num::Wrapping;
 
 use std::fmt;
@@ -95,7 +95,7 @@ impl DeltaL{
 
     /// Sets the passphrase for the `DeltaL`
     pub fn set_passphrase(&mut self, passphrase: &str){
-        self.passhash = hash_as_array(passphrase)
+        self.passhash = hash_as_array(passphrase.as_bytes())
     }
 
     fn offset(&self, b: u8, i: usize) -> u8{
@@ -146,9 +146,7 @@ impl DeltaL{
                     coded_buffer.push(76);
                     coded_buffer.push(10); // Push a newline
 
-                    for b in &hash_as_array(&buffer){
-                        coded_buffer.push(*b)
-                    }
+                    coded_buffer.extend_from_slice(&hash_as_array(&buffer));
                 } else {
                     coded_buffer.push(108);
                     coded_buffer.push(10); // Push a newline
@@ -212,9 +210,9 @@ fn slice_to_array(slice: &[u8]) -> [u8; 8]{
     [slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7]]
 }
 
-fn hash_as_array<T: Hash>(h: T) -> [u8; 8]{
+fn hash_as_array(to_be_hashed: &[u8]) -> [u8; 8]{
     let mut siphasher = SipHasher::new();
-    h.hash(&mut siphasher);
+    siphasher.write(to_be_hashed);
 
     unsafe {::std::mem::transmute::<u64, [u8; 8]>(siphasher.finish())}
 }
