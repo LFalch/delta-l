@@ -54,6 +54,7 @@ fn main() {
         if dl.is_mode_encrypt(){
             dl.set_checksum(false);
         }else{
+            println!("Checksum flag is only available when encrypting.\n");
             return incorrect_syntax()
         }
     }
