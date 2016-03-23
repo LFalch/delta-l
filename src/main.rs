@@ -35,6 +35,7 @@ fn main() {
     let mut passphrase: Option<usize> = None;
     let mut checksum                 = false;
     let mut force_overwite           = false;
+    let mut force                    = false;
 
     for (index, arg) in args.iter().enumerate().skip(2){
         if index == to_file.unwrap_or_default() || index == passphrase.unwrap_or_default(){
@@ -58,6 +59,12 @@ fn main() {
                 "y"|"-yes" =>
                     if !force_overwite {
                         force_overwite = true
+                    } else {
+                        return incorrect_syntax()
+                    },
+                "f"|"-force" =>
+                    if !force {
+                        force = true
                     } else {
                         return incorrect_syntax()
                     },
@@ -85,10 +92,10 @@ fn main() {
     }
 
     let res = match to_file {
-        Some(i) => code(file_path, &args[i], force_overwite, dl),
+        Some(i) => code(file_path, &args[i], force, force_overwite, dl),
         None    => {
             let to = file_path.to_string() + dl.get_mode_standard_extension();
-            code(file_path, &to, force_overwite, dl)
+            code(file_path, &to, force, force_overwite, dl)
         }
     };
 
@@ -108,7 +115,7 @@ fn main() {
 
 use std::path::Path;
 
-fn code(p: &str, to: &str, force_overwite: bool, dl: DeltaL) -> DLResult<Option<String>>{
+fn code(p: &str, to: &str, force: bool, force_overwite: bool, dl: DeltaL) -> DLResult<Option<String>>{
     let to = Path::new(to);
 
     if to.exists() && !force_overwite{
@@ -128,7 +135,7 @@ fn code(p: &str, to: &str, force_overwite: bool, dl: DeltaL) -> DLResult<Option<
         }
     }
     // If the Result is Ok(x), map it with Some so as to return Ok(Some(x))
-    dl.execute(p, to).map(Some)
+    dl.execute(p, to, force).map(Some)
 }
 
 const USAGE: &'static str = r#"Delta L encryption program
@@ -145,7 +152,8 @@ Options:
     -p <passphrase>     Encrypts/decrypts with a passphrase.
     -t <output-file>    Specifies the output file.
     -y                  Forces overwriting of an existing file without prompt.
-    -c                  Disables checksum feature when encrypting. This is read from the header when decrypting."#;
+    -c                  Disables checksum feature when encrypting. This is read from the header when decrypting.
+    -f                  Forces the resulting file to be created even if the checsums mismatch during decryption."#;
 
 fn incorrect_syntax(){
     println!("Incorrect syntax:\n    Type delta-l -? for help")
