@@ -12,12 +12,29 @@ use std::io::Write;
 
 #[bench]
 fn encrypt(b: &mut test::Bencher){
-    let dir = TempDir::new("delta-l_bench-").unwrap();
-
-    let path = &dir.path().join("test.txt");
-    let mut file = File::create(path).unwrap();
-    write!(file, "Hello, I'm used for the benchmark test!").unwrap();
+    let path = Path::new("test_data/bench.txt");
+    assert!(path.exists(), "Please create the file: test_data/bench.txt");
     let dl = DeltaL::new(Mode::Encrypt{checksum: true});
+
+    b.iter(|| dl.execute(path).unwrap());
+}
+
+fn save(res_vec: Vec<u8>, to_path: &str) -> std::io::Result<()>{
+    let mut result_file = try!(File::create(to_path));
+
+    result_file.write_all(&res_vec)
+}
+
+use std::path::Path;
+
+#[bench]
+fn decrypt(b: &mut test::Bencher){
+    let path = Path::new("test_data/bench.txt");
+    assert!(path.exists(), "Please create the file: test_data/bench.txt");
+    save(DeltaL::new(Mode::Encrypt{checksum: true}).execute(path).unwrap(), "test_data/bench.txt.delta").unwrap();
+
+    let dl = DeltaL::new(Mode::Decrypt);
+    let path = Path::new("test_data/bench.txt.delta");
 
     b.iter(|| dl.execute(path).unwrap());
 }
