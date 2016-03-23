@@ -70,6 +70,18 @@ pub struct DeltaL{
     passhash: [u8; 8],
 }
 
+macro_rules! handle {
+    ($passhash:expr, $wrapping:ident, $skip:ident, $coded_buffer:ident, $buffer:ident, $diff:expr) => {{
+        let mut diff = $diff;
+
+        $coded_buffer.append(&mut $buffer.into_iter()
+            .skip($skip)
+            .enumerate()
+            .map(|(i, b)| diff(<u8>::$wrapping(b, $passhash[i % 8])))
+            .collect());
+    }};
+}
+
 impl DeltaL{
     /// Creates a `DeltaL` instance
     pub fn new(mode: Mode) -> DeltaL{
@@ -92,14 +104,6 @@ impl DeltaL{
     /// Sets the passphrase for the `DeltaL`
     pub fn set_passphrase(&mut self, passphrase: &str){
         self.passhash = hash_as_array(passphrase.as_bytes())
-    }
-
-    fn offset(&self, (i, b): (usize, u8)) -> u8{
-        if self.is_mode_encrypt(){
-            b.wrapping_add(self.passhash[i % 8])
-        }else{
-            b.wrapping_sub(self.passhash[i % 8])
-        }
     }
 
     /// Returns ".delta" for encryption and ".dec" for decryption
@@ -132,7 +136,7 @@ impl DeltaL{
 
         // Do header related things
         if let Encrypt{checksum} = self.mode {
-            coded_buffer = Vec::with_capacity(buffer.len());
+            coded_buffer = Vec::with_capacity(buffer.len() + 12);
 
             // Makes delta symbol: Δ
             coded_buffer.push(206);
@@ -140,15 +144,11 @@ impl DeltaL{
 
             // Capital L (76) if checksum is enabled, lowercase (108) if disabled
             if checksum {
-                coded_buffer.reserve(12);
-
                 coded_buffer.push(76);
                 coded_buffer.push(10); // Push a newline
 
                 coded_buffer.extend_from_slice(&hash_as_array(&buffer));
             } else {
-                coded_buffer.reserve(4);
-
                 coded_buffer.push(108);
                 coded_buffer.push(10); // Push a newline
             }
@@ -173,25 +173,23 @@ impl DeltaL{
         {
             let mut last: u8 = 0;
 
-            let mut diff: Box<FnMut(u8) -> u8> = match self.mode {
-                Encrypt{..} => Box::new(|b: u8| {
-                    // Add last byte when encrypting
-                    let ret = b.wrapping_add(last);
-                    last = b;
-                    ret
-                }),
-                Decrypt => Box::new(|b: u8| {
-                    // Subtract byte last read when decrypting
-                    last = b.wrapping_sub(last);
-                    last
-                })
-            };
-
-            coded_buffer.append(&mut buffer.into_iter()
-                .skip(skip)
-                .enumerate()
-                .map(|x| diff(self.offset(x)))
-                .collect());
+            match self.mode{
+                Encrypt{..} => {
+                    handle!(self.passhash, wrapping_add, skip, coded_buffer, buffer, |b: u8| {
+                        // Add last byte when encrypting
+                        let ret = b.wrapping_add(last);
+                        last = b;
+                        ret
+                    });
+                },
+                Decrypt     => {
+                    handle!(self.passhash, wrapping_sub, skip, coded_buffer, buffer, |b: u8| {
+                        // Subtract byte last read when decrypting
+                        last = b.wrapping_sub(last);
+                        last
+                    });
+                }
+            }
         }
 
         if let Some(check) = checksum {
