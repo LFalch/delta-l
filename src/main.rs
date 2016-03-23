@@ -1,4 +1,4 @@
-mod dl;
+extern crate delta_l as dl;
 
 use dl::{DeltaL, Result as DLResult};
 use dl::Mode::{Encrypt, Decrypt};
