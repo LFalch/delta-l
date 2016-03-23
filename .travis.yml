@@ -8,9 +8,6 @@ matrix:
     - rust: nightly
 install:
   - |
-    [ $TRAVIS_RUST_VERSION = nightly ] &&
-    [ $TRAVIS_BRANCH = master ] &&
-    [ $TRAVIS_PULL_REQUEST = false ] &&
     mkdir test_data &&
     curl http://shakespeare.mit.edu/midsummer/full.html > test_data/bench.txt
 after_success:
