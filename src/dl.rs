@@ -123,7 +123,7 @@ impl DeltaL{
     }
 
     /// Codes the file in from_path to the file in to_path
-    pub fn execute<FP: AsRef<Path>, TP: AsRef<Path>>(&self, from_path: FP, to_path: TP) -> Result<String>{
+    pub fn execute<FP: AsRef<Path>, TP: AsRef<Path>>(&self, from_path: FP, to_path: TP, ignore_mismatch: bool) -> Result<String>{
         let coded_buffer = {
             let mut f = try!(File::open(&from_path));
             let mut buffer = Vec::<u8>::new();
@@ -190,7 +190,11 @@ impl DeltaL{
 
             if let Some(check) = checksum {
                 if check != hash_as_array(&coded_buffer){
-                    return Err(ChecksumMismatch)
+                    if ignore_mismatch{
+                        println!("WARNING: Checksums mismatched!")
+                    }else{
+                        return Err(ChecksumMismatch)
+                    }
                 }
             }
 
