@@ -4,7 +4,6 @@ pub use self::Mode::{Encrypt, Decrypt};
 pub use self::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::hash::{Hasher, SipHasher};
-use std::num::Wrapping;
 
 use std::fmt;
 use std::io;
@@ -98,12 +97,12 @@ impl DeltaL{
         self.passhash = hash_as_array(passphrase.as_bytes())
     }
 
-    fn offset(&self, b: u8, i: usize) -> u8{
+    fn offset(&self, (i, b): (usize, u8)) -> u8{
         if self.is_mode_encrypt(){
-            Wrapping(b) + Wrapping(self.passhash[i % 8])
+            b.wrapping_add(self.passhash[i % 8])
         }else{
-            Wrapping(b) - Wrapping(self.passhash[i % 8])
-        }.0
+            b.wrapping_sub(self.passhash[i % 8])
+        }
     }
 
     /// Returns ".delta" for encryption and ".dec" for decryption
@@ -129,24 +128,30 @@ impl DeltaL{
 
         try!(f.read_to_end(&mut buffer));
 
-        let mut coded_buffer = Vec::<u8>::new();
+        let mut coded_buffer: Vec<u8>;
 
         let mut skip = 0;
         let mut checksum: Option<[u8; 8]> = None;
 
         // Do header related things
         if let Encrypt{checksum} = self.mode {
+            coded_buffer = Vec::with_capacity(buffer.len());
+
             // Makes delta symbol: Δ
             coded_buffer.push(206);
             coded_buffer.push(148);
 
             // Capital L (76) if checksum is enabled, lowercase (108) if disabled
             if checksum {
+                coded_buffer.reserve(12);
+
                 coded_buffer.push(76);
                 coded_buffer.push(10); // Push a newline
 
                 coded_buffer.extend_from_slice(&hash_as_array(&buffer));
             } else {
+                coded_buffer.reserve(4);
+
                 coded_buffer.push(108);
                 coded_buffer.push(10); // Push a newline
             }
@@ -162,29 +167,34 @@ impl DeltaL{
                     },
                     _ => return Err(InvalidHeader)
                 }
+                coded_buffer = Vec::with_capacity(buffer.len() - skip);
             }else{
                 return Err(InvalidHeader)
             }
         }
 
         {
-            let mut buffer_iter = buffer.iter().map(|b| *b).skip(skip).enumerate();
+            let mut last: u8 = 0;
 
-            // Handle the first byte specially outside for loop
-            if let Some((i, b)) = buffer_iter.next(){
-                coded_buffer.push(self.offset(b, i))
-            }
+            let mut diff: Box<FnMut(u8) -> u8> = match self.mode {
+                Encrypt{..} => Box::new(|b: u8| {
+                    // Add last byte when encrypting
+                    let ret = b.wrapping_add(last);
+                    last = b;
+                    ret
+                }),
+                Decrypt => Box::new(|b: u8| {
+                    // Subtract byte last read when decrypting
+                    last = b.wrapping_sub(last);
+                    last
+                })
+            };
 
-            // Loop over every byte in the file buffer, along with the index of that byte
-            for (i, b) in buffer_iter{
-                // Adds/substracts the byte (plus/minus the offset) with the previous byte, using Wrapping to ignore over- and underflow
-                let result = match self.mode {
-                    Encrypt{..} => self.offset(b, i).wrapping_add(buffer[i-1]),
-                    Decrypt     => self.offset(b, i).wrapping_sub(coded_buffer[i-1]),
-                };
-
-                coded_buffer.push(result)
-            }
+            coded_buffer.append(&mut buffer.into_iter()
+                .skip(skip)
+                .enumerate()
+                .map(|x| diff(self.offset(x)))
+                .collect());
         }
 
         if let Some(check) = checksum {
