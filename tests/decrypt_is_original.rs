@@ -1,41 +1,27 @@
-extern crate tempdir;
 extern crate delta_l;
 
-use delta_l::{DeltaL, Mode};
-use tempdir::TempDir;
+use delta_l::DeltaL;
+use delta_l::Mode::*;
 
 use std::fs::File;
-use std::path::Path;
 use std::io::{Write, Read, Result as IOResult};
+
+const ORI_PATH: &'static str = "test_data/bench.txt";
+const RES_PATH: &'static str = "test_data/test.delta";
 
 #[test]
 fn decrypt_is_orignal(){
-    let dir = TempDir::new("delta-l_test-").unwrap();
+    let res_vec = DeltaL::new(Encrypt{checksum: true}).execute(File::open(ORI_PATH).unwrap()).unwrap();
+    File::create(RES_PATH).unwrap().write_all(&res_vec).unwrap();
 
-    let original_path = &dir.path().join("test.txt");
-    let mut original = File::create(original_path).unwrap();
-    write!(original, "Hello World!\nI'm a test!").unwrap();
+    let dec_vec = DeltaL::new(Decrypt).execute(File::open(RES_PATH).unwrap()).unwrap();
 
-    drop(original);
-
-    let res_path = &dir.path().join("test.txt.delta");
-    let res_vec = DeltaL::new(Mode::Encrypt{checksum: true}).execute(File::open(original_path).unwrap()).unwrap();
-    save(res_vec, res_path).unwrap();
-
-    let dec_vec = DeltaL::new(Mode::Decrypt).execute(File::open(res_path).unwrap()).unwrap();
-
-    let original_vec = read(original_path).unwrap();
+    let original_vec = read(ORI_PATH).unwrap();
 
     assert_eq!(original_vec, dec_vec);
 }
 
-fn save(res_vec: Vec<u8>, to_path: &Path) -> IOResult<()>{
-    let mut result_file = try!(File::create(to_path));
-
-    result_file.write_all(&res_vec)
-}
-
-fn read(from_path: &Path) -> IOResult<Vec<u8>>{
+fn read(from_path: &str) -> IOResult<Vec<u8>>{
     let mut f = try!(File::open(from_path));
     let mut buffer = Vec::<u8>::new();
 

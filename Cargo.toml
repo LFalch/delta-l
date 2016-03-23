@@ -6,9 +6,6 @@ authors = ["LFalch <lucas@wasd.dk>"]
 [dependencies]
 getopts = "0.2"
 
-[dev-dependencies]
-tempdir = "0.3"
-
 [[bin]]
   name = "delta-l"
   doc = false
