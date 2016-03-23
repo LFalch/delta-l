@@ -3,6 +3,9 @@ name = "delta-l"
 version = "2.2.1"
 authors = ["LFalch <lucas@wasd.dk>"]
 
+[dependencies]
+getopts = "0.2"
+
 [dev-dependencies]
 tempdir = "0.3"
 

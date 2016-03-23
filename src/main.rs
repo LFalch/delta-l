@@ -1,4 +1,5 @@
 extern crate delta_l as dl;
+extern crate getopts;
 
 use dl::DeltaL;
 use dl::Mode::{Encrypt, Decrypt};
@@ -9,92 +10,62 @@ use std::string::String;
 
 use std::io::ErrorKind::NotFound;
 
-fn main() {
-    if env::args().len() < 2 { // The raw args contain the programme itself too, which is ommited in the args variable defined below.
-        return incorrect_syntax()
-    }
+use getopts::Options;
 
+fn main() {
     let args = &env::args().collect::<Vec<String>>()[1..];
 
-    if args.len() < 2 {
-        match &*args[0] {
-            "-?"|"-h"|"--help" => return println!("{}", USAGE),
-            _                  => return incorrect_syntax(),
-        }
+    let mut opts = Options::new();
+    opts.optflag("?", "help", "Prints this help menu.");
+    opts.optopt("p", "", "Encrypts/decrypts with a passphrase.", "<passphrase>");
+    opts.optopt("o", "", "Sets the output file.", "<output-file>");
+    opts.optflag("y", "yes", "Overwrites output file without prompt, if it already exists.");
+    opts.optflag("c", "checksum", "Disables checksum feature when encrypting: - This is read from the header when decrypting.");
+    opts.optflag("f", "force", "Forces the resulting file to be created even if the checksums mismatch during decryption.");
+
+    let matches = match opts.parse(args){
+        Ok(m) => m,
+        Err(_) => return incorrect_syntax(),
+    };
+
+    if matches.opt_present("?"){
+        return print!("{}", opts.usage(USAGE));
     }
 
-    let file_path = &*args[1];
+    if matches.free.len() != 2{
+        return incorrect_syntax();
+    }
 
-    let mut dl = DeltaL::new(match &*args[0]{
+    let file_path = &*matches.free[1];
+
+    let mut dl = DeltaL::new(match &*matches.free[0]{
         "e"|"encrypt" => Encrypt{checksum: true},
         "d"|"decrypt" => Decrypt,
         _ => return incorrect_syntax()
     });
 
-    let mut to_file   : Option<usize> = None;
-    let mut passphrase: Option<usize> = None;
-    let mut checksum                 = false;
-    let mut force_overwite           = false;
-    let mut force                    = false;
+    let to_file = matches.opt_str("o");
+    let passphrase = matches.opt_str("p");
+    let checksum = matches.opt_present("c");
+    let force = matches.opt_present("f");
+    let force_overwite = matches.opt_present("y");
 
-    for (index, arg) in args.iter().enumerate().skip(2){
-        if index == to_file.unwrap_or_default() || index == passphrase.unwrap_or_default(){
-            continue
-        }
-
-        if arg[0..1].eq("-"){
-            match &arg[1..] {
-                "p"|"-passphrase" =>
-                    if let None = passphrase {
-                        passphrase = Some(index+1)
-                    } else {
-                        return incorrect_syntax()
-                    },
-                "t"|"-to" =>
-                    if let None = to_file {
-                        to_file = Some(index+1)
-                    } else {
-                        return incorrect_syntax()
-                    },
-                "y"|"-yes" =>
-                    if !force_overwite {
-                        force_overwite = true
-                    } else {
-                        return incorrect_syntax()
-                    },
-                "f"|"-force" =>
-                    if !force {
-                        force = true
-                    } else {
-                        return incorrect_syntax()
-                    },
-                "c"|"-checksum" =>
-                    if !checksum {
-                        checksum = dl.set_checksum(false);
-
-                        if !checksum{
-                            println!("Checksum flag is only available when encrypting.\n");
-                            return incorrect_syntax()
-                        }
-                    } else {
-                        return incorrect_syntax()
-                    },
-
-                _ => return incorrect_syntax()
-            }
+    if checksum {
+        if dl.is_mode_encrypt(){
+            dl.set_checksum(false);
         }else{
             return incorrect_syntax()
         }
     }
 
-    if let Some(i) = passphrase{
-        dl.set_passphrase(&args[i])
+    if let Some(pp) = passphrase{
+        dl.set_passphrase(&pp);
     }
 
-    let to: PathBuf = From::from(match to_file{
-        Some(i) => args[i].to_owned(),
-        None => file_path.to_string() + dl.get_mode_standard_extension(),
-    });
+    let to: PathBuf = to_file
+        .unwrap_or(file_path.to_owned() + dl.get_mode_standard_extension())
+        // From `String` into `PathBuf`
+        .into();
 
     if to.exists() && !force_overwite{
         println!("Output file already exists; do you want to overwrite (yes/no)?");
@@ -148,19 +119,12 @@ fn save(res_vec: Vec<u8>, to_path: &PathBuf) -> IOResult<()>{
 const USAGE: &'static str = r#"Delta L encryption program
 
 Usage:
-    delta-l <mode> <file> [options]
+    delta-l <MODE> <FILE> [OPTIONS]
     delta-l -?
 
 Modes:
-    encrypt             Encrypts a file
-    decrypt             Decrypts a file
-
-Options:
-    -p <passphrase>     Encrypts/decrypts with a passphrase.
-    -t <output-file>    Specifies the output file.
-    -y                  Forces overwriting of an existing file without prompt.
-    -c                  Disables checksum feature when encrypting. This is read from the header when decrypting.
-    -f                  Forces the resulting file to be created even if the checsums mismatch during decryption."#;
+    e[ncrypt]           Encrypts a file
+    d[ecrypt]           Decrypts a file"#;
 
 fn incorrect_syntax(){
     println!("Incorrect syntax:\n    Type delta-l -? for help")

@@ -2,8 +2,14 @@
 name = "delta-l"
 version = "2.2.1"
 dependencies = [
+ "getopts 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempdir 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "getopts"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "libc"
