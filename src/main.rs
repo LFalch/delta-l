@@ -1,6 +1,6 @@
 extern crate delta_l as dl;
 
-use dl::{DeltaL, Result as DLResult};
+use dl::DeltaL;
 use dl::Mode::{Encrypt, Decrypt};
 use dl::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
 
@@ -91,32 +91,10 @@ fn main() {
         dl.set_passphrase(&args[i])
     }
 
-    let res = match to_file {
-        Some(i) => code(file_path, &args[i], force, force_overwite, dl),
-        None    => {
-            let to = file_path.to_string() + dl.get_mode_standard_extension();
-            code(file_path, &to, force, force_overwite, dl)
-        }
-    };
-
-    match res {
-        Ok(Some(path)) => println!("Result file has been saved to {}", path),
-        Err(e) => match e {
-            Io(e) => match e.kind(){
-                NotFound     => println!("Couldn't find the specified file.\nPlease make sure the file exists."),
-                _            => println!("An unknown error occured, encrypting the file:\n{:?}", e)
-            },
-            InvalidHeader    => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
-            ChecksumMismatch => println!("Decryption failed:\nIncorrect passphrase.")
-        },
-        Ok(None) => println!("{}cryption has been cancelled.", if dl.is_mode_encrypt() {"En"} else {"De"}),
-    }
-}
-
-use std::path::Path;
-
-fn code(p: &str, to: &str, force: bool, force_overwite: bool, dl: DeltaL) -> DLResult<Option<String>>{
-    let to = Path::new(to);
+    let to: PathBuf = From::from(match to_file{
+        Some(i) => args[i].to_owned(),
+        None => file_path.to_string() + dl.get_mode_standard_extension(),
+    });
 
     if to.exists() && !force_overwite{
         println!("Output file already exists; do you want to overwrite (yes/no)?");
@@ -125,18 +103,47 @@ fn code(p: &str, to: &str, force: bool, force_overwite: bool, dl: DeltaL) -> DLR
 
         loop{
             let mut answer = String::new();
-            try!(stdin.read_line(&mut answer));
+            stdin.read_line(&mut answer).unwrap();
 
             match answer.trim().as_ref(){
                 "yes" => break,
-                "no"  => return Ok(None),
+                "no"  => return println!("{}cryption has been cancelled.", if dl.is_mode_encrypt() {"En"} else {"De"}),
                 _ => println!("Please answer yes or no:"),
             }
         }
     }
-    // If the Result is Ok(x), map it with Some so as to return Ok(Some(x))
-    dl.execute(p, to, force).map(Some)
+
+    match dl.execute(file_path) {
+        Ok(res_vec) => {
+            save(res_vec, &to).unwrap();
+            println!("Result file has been saved to {}", to.to_str().unwrap_or("<nil>"))
+        },
+        Err(e) => match e {
+            Io(e) => match e.kind(){
+                NotFound     => println!("Couldn't find the specified file.\nPlease make sure the file exists."),
+                _            => println!("An unknown error occured, encrypting the file:\n{:?}", e)
+            },
+            InvalidHeader    => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
+            ChecksumMismatch(res_vec) => if force{
+                    println!("Checksum mismatch detetected! Saving anyways because of force flag");
+                    save(res_vec, &to).unwrap();
+                }else{
+                    println!("Decryption failed:\nIncorrect passphrase.")
+                }
+        },
+    }
 }
+
+use std::path::PathBuf;
+use std::fs::File;
+use std::io::{Write, Result as IOResult};
+
+fn save(res_vec: Vec<u8>, to_path: &PathBuf) -> IOResult<()>{
+    let mut result_file = try!(File::create(to_path));
+
+    result_file.write_all(&res_vec)
+}
+
 
 const USAGE: &'static str = r#"Delta L encryption program
 

@@ -26,15 +26,15 @@ pub enum DeltaLError{
     /// Invalid header error
     InvalidHeader,
     /// Checksum mismatch error
-    ChecksumMismatch,
+    ChecksumMismatch(Vec<u8>),
 }
 
 impl fmt::Display for DeltaLError{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
         match *self{
-            Io(ref err)      => err.fmt(f),
-            InvalidHeader    => write!(f, "The header was not valid."),
-            ChecksumMismatch => write!(f, "The checksum of the output file did not match the checksum in the header."),
+            Io(ref err)          => err.fmt(f),
+            InvalidHeader        => write!(f, "The header was not valid."),
+            ChecksumMismatch(..) => write!(f, "The checksum of the output file did not match the checksum in the header."),
         }
     }
 }
@@ -42,9 +42,9 @@ impl fmt::Display for DeltaLError{
 impl Error for DeltaLError{
     fn description(&self) -> &str{
         match *self{
-            Io(ref err)      => err.description(),
-            InvalidHeader    => "header wasn't valid",
-            ChecksumMismatch => "checksum of output file didn't match header checksum",
+            Io(ref err)          => err.description(),
+            InvalidHeader        => "header wasn't valid",
+            ChecksumMismatch(..) => "checksum of output file didn't match header checksum",
         }
     }
 }
@@ -123,89 +123,77 @@ impl DeltaL{
     }
 
     /// Codes the file in from_path to the file in to_path
-    pub fn execute<FP: AsRef<Path>, TP: AsRef<Path>>(&self, from_path: FP, to_path: TP, ignore_mismatch: bool) -> Result<String>{
-        let coded_buffer = {
-            let mut f = try!(File::open(&from_path));
-            let mut buffer = Vec::<u8>::new();
+    pub fn execute<P: AsRef<Path>>(&self, from_path: P) -> Result<Vec<u8>>{
+        let mut f = try!(File::open(&from_path));
+        let mut buffer = Vec::<u8>::new();
 
-            try!(f.read_to_end(&mut buffer));
+        try!(f.read_to_end(&mut buffer));
 
-            let mut coded_buffer = Vec::<u8>::new();
+        let mut coded_buffer = Vec::<u8>::new();
 
-            let mut skip = 0;
-            let mut checksum: Option<[u8; 8]> = None;
+        let mut skip = 0;
+        let mut checksum: Option<[u8; 8]> = None;
 
-            // Do header related things
-            if let Encrypt{checksum} = self.mode {
-                // Makes delta symbol: Δ
-                coded_buffer.push(206);
-                coded_buffer.push(148);
+        // Do header related things
+        if let Encrypt{checksum} = self.mode {
+            // Makes delta symbol: Δ
+            coded_buffer.push(206);
+            coded_buffer.push(148);
 
-                // Capital L (76) if checksum is enabled, lowercase (108) if disabled
-                if checksum {
-                    coded_buffer.push(76);
-                    coded_buffer.push(10); // Push a newline
+            // Capital L (76) if checksum is enabled, lowercase (108) if disabled
+            if checksum {
+                coded_buffer.push(76);
+                coded_buffer.push(10); // Push a newline
 
-                    coded_buffer.extend_from_slice(&hash_as_array(&buffer));
-                } else {
-                    coded_buffer.push(108);
-                    coded_buffer.push(10); // Push a newline
+                coded_buffer.extend_from_slice(&hash_as_array(&buffer));
+            } else {
+                coded_buffer.push(108);
+                coded_buffer.push(10); // Push a newline
+            }
+        } else { // if `Decrypt`
+            if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
+                match buffer[2]{
+                    76 if buffer.len() > 11 => {
+                        checksum = Some(slice_to_array(&buffer[4..12]));
+                        skip = 12;
+                    },
+                    108 => {
+                        skip = 4;
+                    },
+                    _ => return Err(InvalidHeader)
                 }
-            } else { // if `Decrypt`
-                if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
-                    match buffer[2]{
-                        76 if buffer.len() > 11 => {
-                            checksum = Some(slice_to_array(&buffer[4..12]));
-                            skip = 12;
-                        },
-                        108 => {
-                            skip = 4;
-                        },
-                        _ => return Err(InvalidHeader)
-                    }
-                }else{
-                    return Err(InvalidHeader)
-                }
+            }else{
+                return Err(InvalidHeader)
+            }
+        }
+
+        {
+            let mut buffer_iter = buffer.iter().map(|b| *b).skip(skip).enumerate();
+
+            // Handle the first byte specially outside for loop
+            if let Some((i, b)) = buffer_iter.next(){
+                coded_buffer.push(self.offset(b, i))
             }
 
-            {
-                let mut buffer_iter = buffer.iter().map(|b| *b).skip(skip).enumerate();
+            // Loop over every byte in the file buffer, along with the index of that byte
+            for (i, b) in buffer_iter{
+                // Adds/substracts the byte (plus/minus the offset) with the previous byte, using Wrapping to ignore over- and underflow
+                let result = match self.mode {
+                    Encrypt{..} => self.offset(b, i).wrapping_add(buffer[i-1]),
+                    Decrypt     => self.offset(b, i).wrapping_sub(coded_buffer[i-1]),
+                };
 
-                // Handle the first byte specially outside for loop
-                if let Some((i, b)) = buffer_iter.next(){
-                    coded_buffer.push(self.offset(b, i))
-                }
-
-                // Loop over every byte in the file buffer, along with the index of that byte
-                for (i, b) in buffer_iter{
-                    // Adds/substracts the byte (plus/minus the offset) with the previous byte, using Wrapping to ignore over- and underflow
-                    let Wrapping(result) = match self.mode {
-                        Encrypt{..} => Wrapping(self.offset(b, i)) + Wrapping(buffer[i-1]),
-                        Decrypt     => Wrapping(self.offset(b, i)) - Wrapping(coded_buffer[i-1]),
-                    };
-
-                    coded_buffer.push(result)
-                }
+                coded_buffer.push(result)
             }
+        }
 
-            if let Some(check) = checksum {
-                if check != hash_as_array(&coded_buffer){
-                    if ignore_mismatch{
-                        println!("WARNING: Checksums mismatched!")
-                    }else{
-                        return Err(ChecksumMismatch)
-                    }
-                }
+        if let Some(check) = checksum {
+            if check != hash_as_array(&coded_buffer){
+                return Err(ChecksumMismatch(coded_buffer))
             }
+        }
 
-            coded_buffer
-        };
-
-        let mut result_file = try!(File::create(&to_path));
-
-        try!(result_file.write_all(&coded_buffer));
-
-        Ok(to_path.as_ref().to_str().unwrap().to_string())
+        Ok(coded_buffer)
     }
 }
 
