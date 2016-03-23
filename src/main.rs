@@ -85,17 +85,22 @@ fn main() {
         }
     }
 
-    match dl.execute(file_path) {
+    let f = match File::open(file_path){
+        Ok(f) => f,
+        Err(e) => match e.kind(){
+            NotFound => return println!("Couldn't find the specified file.\nPlease make sure the file exists."),
+            _        => return println!("An unknown error occured, opening the file:\n{:?}", e)
+        }
+    };
+
+    match dl.execute(f) {
         Ok(res_vec) => {
             save(res_vec, &to).unwrap();
             println!("Result file has been saved to {}", to.to_str().unwrap_or("<nil>"))
         },
         Err(e) => match e {
-            Io(e) => match e.kind(){
-                NotFound     => println!("Couldn't find the specified file.\nPlease make sure the file exists."),
-                _            => println!("An unknown error occured, encrypting the file:\n{:?}", e)
-            },
-            InvalidHeader    => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
+            Io(e)         => println!("An unknown error occured, encrypting the file:\n{:?}", e.kind()),
+            InvalidHeader => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
             ChecksumMismatch(res_vec) => if force{
                     println!("Checksum mismatch detetected! Saving anyways because of force flag");
                     save(res_vec, &to).unwrap();

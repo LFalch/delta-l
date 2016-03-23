@@ -16,11 +16,13 @@ fn decrypt_is_orignal(){
     let mut original = File::create(original_path).unwrap();
     write!(original, "Hello World!\nI'm a test!").unwrap();
 
+    drop(original);
+
     let res_path = &dir.path().join("test.txt.delta");
-    let res_vec = DeltaL::new(Mode::Encrypt{checksum: true}).execute(original_path).unwrap();
+    let res_vec = DeltaL::new(Mode::Encrypt{checksum: true}).execute(File::open(original_path).unwrap()).unwrap();
     save(res_vec, res_path).unwrap();
 
-    let dec_vec = DeltaL::new(Mode::Decrypt).execute(res_path).unwrap();
+    let dec_vec = DeltaL::new(Mode::Decrypt).execute(File::open(res_path).unwrap()).unwrap();
 
     let original_vec = read(original_path).unwrap();
 

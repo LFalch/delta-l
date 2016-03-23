@@ -7,10 +7,7 @@ use std::hash::{Hasher, SipHasher};
 
 use std::fmt;
 use std::io;
-use std::io::{Read, Write};
-
-use std::fs::File;
-use std::path::Path;
+use std::io::{Seek, SeekFrom, Read, Write};
 
 use std::error::Error;
 
@@ -122,11 +119,11 @@ impl DeltaL{
     }
 
     /// Codes the file in from_path to the file in to_path
-    pub fn execute<P: AsRef<Path>>(&self, from_path: P) -> Result<Vec<u8>>{
-        let mut f = try!(File::open(&from_path));
+    pub fn execute<R: Read + Seek>(&self, mut src: R) -> Result<Vec<u8>>{
         let mut buffer = Vec::<u8>::new();
 
-        try!(f.read_to_end(&mut buffer));
+        try!(src.seek(SeekFrom::Start(0)));
+        try!(src.read_to_end(&mut buffer));
 
         let mut coded_buffer: Vec<u8>;
 
