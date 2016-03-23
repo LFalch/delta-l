@@ -1,6 +1,6 @@
 [package]
 name = "delta-l"
-version = "2.0.0"
+version = "2.2.0"
 authors = ["LFalch <lucas@wasd.dk>"]
 
 [dev-dependencies]
