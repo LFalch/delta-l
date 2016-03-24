@@ -3,33 +3,27 @@
 extern crate test;
 extern crate delta_l;
 
-use delta_l::{DeltaL, Mode};
+use delta_l::DeltaL;
 
 use std::fs::File;
-use std::io::Write;
+use std::io::sink;
 
 #[bench]
 fn encrypt(b: &mut test::Bencher){
-    let f = File::open("test_data/bench.txt").unwrap();
-    let dl = DeltaL::new(Mode::Encrypt{checksum: true});
+    let mut f = File::open("test_data/bench.txt").unwrap();
+    let dl = DeltaL::new();
 
-    b.iter(|| dl.execute(&f).unwrap());
-}
-
-fn save(res_vec: Vec<u8>, to_path: &str) -> std::io::Result<()>{
-    let mut result_file = try!(File::create(to_path));
-
-    result_file.write_all(&res_vec)
+    b.iter(|| dl.encode(&mut f, &mut sink(), true).unwrap());
 }
 
 #[bench]
 fn decrypt(b: &mut test::Bencher){
-    let file = File::open("test_data/bench.txt").unwrap();
-    let save_path = "test_data/bench.txt.delta";
-    save(DeltaL::new(Mode::Encrypt{checksum: true}).execute(file).unwrap(), save_path).unwrap();
+    let dl = DeltaL::new();
 
-    let dl = DeltaL::new(Mode::Decrypt);
-    let f = File::open(save_path).unwrap();
+    let mut file = File::open("test_data/bench.txt").unwrap();
 
-    b.iter(|| dl.execute(&f).unwrap());
+    let mut enc_data = Vec::new();
+    dl.encode(&mut file, &mut enc_data, true).unwrap();
+
+    b.iter(|| dl.decode(&mut &*enc_data, &mut sink()).unwrap());
 }

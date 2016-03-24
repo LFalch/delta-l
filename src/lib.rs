@@ -1,22 +1,21 @@
 //! Crate for using Delta-L encryption
 #![warn(missing_docs)]
-pub use self::Mode::{Encrypt, Decrypt};
-pub use self::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
+pub use self::DecryptionError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::hash::{Hasher, SipHasher};
 
 use std::fmt;
 use std::io;
-use std::io::{Seek, SeekFrom, Read, Write};
+use std::io::{Read, Write};
 
 use std::error::Error;
 
-/// Convenient `Result` type for `DeltaLError`
-pub type Result<T> = ::std::result::Result<T, DeltaLError>;
+/// Convenient `Result` type for `DecryptionError`
+pub type Result<T> = ::std::result::Result<T, DecryptionError>;
 
-/// Describes errors that can occur during encryption and decryption
+/// Wrapper for errors that can occur during decryption
 #[derive(Debug)]
-pub enum DeltaLError{
+pub enum DecryptionError{
     /// Errors that are just plain IO errors
     Io(io::Error),
     /// Invalid header error
@@ -25,7 +24,7 @@ pub enum DeltaLError{
     ChecksumMismatch(Vec<u8>),
 }
 
-impl fmt::Display for DeltaLError{
+impl fmt::Display for DecryptionError{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
         match *self{
             Io(ref err)          => err.fmt(f),
@@ -35,7 +34,7 @@ impl fmt::Display for DeltaLError{
     }
 }
 
-impl Error for DeltaLError{
+impl Error for DecryptionError{
     fn description(&self) -> &str{
         match *self{
             Io(ref err)          => err.description(),
@@ -45,59 +44,23 @@ impl Error for DeltaLError{
     }
 }
 
-impl From<io::Error> for DeltaLError{
-    fn from(e: io::Error) -> DeltaLError{
-        DeltaLError::Io(e)
+impl From<io::Error> for DecryptionError{
+    fn from(e: io::Error) -> DecryptionError{
+        DecryptionError::Io(e)
     }
-}
-
-/// Specifies whether to encrypt or decrypt
-#[derive(Debug, Copy, Clone)]
-pub enum Mode{
-    /// Specifies that we're encrypting
-    Encrypt{
-        /// Specifies whether to enable checksum verification
-        checksum: bool
-    },
-    /// Specifies that we're decrypting
-    Decrypt,
 }
 
 /// Provides interface for Delta-L encryption/decryption
 #[derive(Debug, Copy, Clone)]
 pub struct DeltaL{
-    mode    : Mode,
-    passhash: [u8; 8],
-}
-
-macro_rules! handle {
-    ($passhash:expr, $wrapping:ident, $skip:ident, $coded_buffer:ident, $buffer:ident, $diff:expr) => {{
-        let mut diff = $diff;
-
-        $coded_buffer.append(&mut $buffer.into_iter()
-            .skip($skip)
-            .enumerate()
-            .map(|(i, b)| diff(<u8>::$wrapping(b, $passhash[i % 8])))
-            .collect());
-    }};
+    passhash: [u8; 8]
 }
 
 impl DeltaL{
     /// Creates a `DeltaL` instance
-    pub fn new(mode: Mode) -> DeltaL{
+    pub fn new() -> DeltaL{
         DeltaL{
-            mode     : mode,
-            passhash: [0; 8],
-        }
-    }
-
-    /// Enables/disables checksum, if mode is `Encrypt`
-    pub fn set_checksum(&mut self, checksum_flag: bool) -> bool{
-        if let Encrypt{ref mut checksum} = self.mode{
-            *checksum = checksum_flag;
-            true
-        }else{
-            false
+            passhash: [0; 8]
         }
     }
 
@@ -106,91 +69,83 @@ impl DeltaL{
         self.passhash = hash_as_array(passphrase.as_bytes())
     }
 
-    /// Returns ".delta" for encryption and ".dec" for decryption
-    pub fn get_mode_standard_extension(&self) -> &'static str{
-        match self.mode{
-            Encrypt{..} => ".delta",
-            Decrypt     => ".dec",
-        }
-    }
-
-    /// Returns whether the mode is `Encrypt`
-    pub fn is_mode_encrypt(&self) -> bool{
-        match self.mode{
-            Encrypt{..} => true,
-            _           => false,
-        }
-    }
-
-    /// Codes the file in from_path to the file in to_path
-    pub fn execute<R: Read + Seek>(&self, mut src: R) -> Result<Vec<u8>>{
+    /// Encodes
+    pub fn encode<R: Read, W: Write>(&self, src: &mut R, dest: &mut W, checksum: bool) -> io::Result<()>{
         let mut buffer = Vec::<u8>::new();
 
-        try!(src.seek(SeekFrom::Start(0)));
         try!(src.read_to_end(&mut buffer));
 
-        let mut coded_buffer: Vec<u8>;
+        // Do header related things
 
-        let mut skip = 0;
+        // Makes delta symbol: Δ
+        try!(dest.write(&[206, 148]));
+
+        // Capital L if checksum is enabled, lowercase if disabled
+        if checksum {
+            try!(dest.write(b"L\n"));
+
+            try!(dest.write(&hash_as_array(&buffer)));
+        } else {
+            try!(dest.write(b"l\n"));
+        }
+
+        let mut last: u8 = 0;
+
+        let coded_buffer: Vec<_> = buffer
+            .into_iter()
+            .enumerate()
+            .map(|(i, b)|{
+                // Add last byte when encrypting
+                let ret = b.wrapping_add(self.passhash[i % 8]).wrapping_add(last);
+                last = b;
+                ret
+            }).collect();
+
+        try!(dest.write_all(&coded_buffer));
+        try!(dest.flush());
+
+        Ok(())
+    }
+
+    /// Decodes
+    pub fn decode<R: Read, W: Write>(&self, src: &mut R, dest: &mut W) -> Result<()>{
+        let mut buffer = Vec::<u8>::new();
+
+        try!(src.read_to_end(&mut buffer));
+
+        let skip;
         let mut checksum: Option<[u8; 8]> = None;
 
         // Do header related things
-        if let Encrypt{checksum} = self.mode {
-            coded_buffer = Vec::with_capacity(buffer.len() + 12);
-
-            // Makes delta symbol: Δ
-            coded_buffer.push(206);
-            coded_buffer.push(148);
-
-            // Capital L (76) if checksum is enabled, lowercase (108) if disabled
-            if checksum {
-                coded_buffer.push(76);
-                coded_buffer.push(10); // Push a newline
-
-                coded_buffer.extend_from_slice(&hash_as_array(&buffer));
-            } else {
-                coded_buffer.push(108);
-                coded_buffer.push(10); // Push a newline
-            }
-        } else { // if `Decrypt`
-            if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
-                match buffer[2]{
-                    76 if buffer.len() > 11 => {
-                        checksum = Some(slice_to_array(&buffer[4..12]));
-                        skip = 12;
-                    },
-                    108 => {
-                        skip = 4;
-                    },
-                    _ => return Err(InvalidHeader)
-                }
-                coded_buffer = Vec::with_capacity(buffer.len() - skip);
-            }else{
-                return Err(InvalidHeader)
-            }
-        }
-
-        {
-            let mut last: u8 = 0;
-
-            match self.mode{
-                Encrypt{..} => {
-                    handle!(self.passhash, wrapping_add, skip, coded_buffer, buffer, |b: u8| {
-                        // Add last byte when encrypting
-                        let ret = b.wrapping_add(last);
-                        last = b;
-                        ret
-                    });
+        if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
+            match buffer[2]{
+                // 76 = 'L'
+                76 if buffer.len() > 11 => {
+                    checksum = Some(slice_to_array(&buffer[4..12]));
+                    skip = 12;
                 },
-                Decrypt     => {
-                    handle!(self.passhash, wrapping_sub, skip, coded_buffer, buffer, |b: u8| {
-                        // Subtract byte last read when decrypting
-                        last = b.wrapping_sub(last);
-                        last
-                    });
-                }
+                // 108 = 'l'
+                108 => {
+                    skip = 4;
+                },
+                _ => return Err(InvalidHeader)
             }
+        }else{
+            return Err(InvalidHeader)
         }
+
+        let mut last: u8 = 0;
+
+        let coded_buffer: Vec<u8> = buffer
+            .into_iter()
+            .skip(skip)
+            .enumerate()
+            .map(|(i, b)| {
+                // Subtract byte last read when decrypting
+                last = b.wrapping_sub(self.passhash[i % 8]).wrapping_sub(last);
+                last
+            })
+            .collect();
 
         if let Some(check) = checksum {
             if check != hash_as_array(&coded_buffer){
@@ -198,7 +153,10 @@ impl DeltaL{
             }
         }
 
-        Ok(coded_buffer)
+        try!(dest.write_all(&coded_buffer));
+        try!(dest.flush());
+
+        Ok(())
     }
 }
 

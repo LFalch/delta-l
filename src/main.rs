@@ -2,8 +2,7 @@ extern crate delta_l as dl;
 extern crate getopts;
 
 use dl::DeltaL;
-use dl::Mode::{Encrypt, Decrypt};
-use dl::DeltaLError::{Io, InvalidHeader, ChecksumMismatch};
+use dl::DecryptionError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::env;
 use std::string::String;
@@ -11,6 +10,22 @@ use std::string::String;
 use std::io::ErrorKind::NotFound;
 
 use getopts::Options;
+
+#[derive(Debug, Copy, Clone)]
+enum Mode{
+    Encrypt, Decrypt
+}
+
+impl Mode{
+    fn get_mode_standard_extension(&self) -> &'static str{
+        match *self{
+            Encrypt => ".delta",
+            Decrypt => ".dec"
+        }
+    }
+}
+
+use Mode::*;
 
 fn main() {
     let args = &env::args().collect::<Vec<String>>()[1..];
@@ -38,22 +53,22 @@ fn main() {
 
     let file_path = &*matches.free[1];
 
-    let mut dl = DeltaL::new(match &*matches.free[0]{
-        "e"|"encrypt" => Encrypt{checksum: true},
+    let mode = match &*matches.free[0]{
+        "e"|"encrypt" => Encrypt,
         "d"|"decrypt" => Decrypt,
         _ => return incorrect_syntax()
-    });
+    };
+
+    let mut dl = DeltaL::new();
 
     let to_file = matches.opt_str("o");
     let passphrase = matches.opt_str("p");
-    let checksum = matches.opt_present("c");
+    let checksum = !matches.opt_present("c");
     let force = matches.opt_present("f");
     let force_overwite = matches.opt_present("y");
 
-    if checksum {
-        if dl.is_mode_encrypt(){
-            dl.set_checksum(false);
-        }else{
+    if !checksum {
+        if let Decrypt = mode{
             println!("Checksum flag is only available when encrypting.\n");
             return incorrect_syntax()
         }
@@ -64,7 +79,7 @@ fn main() {
     }
 
     let to: PathBuf = to_file
-        .unwrap_or(file_path.to_owned() + dl.get_mode_standard_extension())
+        .unwrap_or(file_path.to_owned() + mode.get_mode_standard_extension())
         // From `String` into `PathBuf`
         .into();
 
@@ -79,13 +94,13 @@ fn main() {
 
             match answer.trim().as_ref(){
                 "yes" => break,
-                "no"  => return println!("{}cryption has been cancelled.", if dl.is_mode_encrypt() {"En"} else {"De"}),
+                "no"  => return println!("{}cryption has been cancelled.", if let Encrypt = mode {"En"} else {"De"}),
                 _ => println!("Please answer yes or no:"),
             }
         }
     }
 
-    let f = match File::open(file_path){
+    let mut f = match File::open(file_path){
         Ok(f) => f,
         Err(e) => match e.kind(){
             NotFound => return println!("Couldn't find the specified file.\nPlease make sure the file exists."),
@@ -93,9 +108,15 @@ fn main() {
         }
     };
 
-    match dl.execute(f) {
-        Ok(res_vec) => {
-            save(res_vec, &to).unwrap();
+    let mut result_file = File::create(&to).unwrap();
+
+    let res = match mode{
+        Encrypt => dl.encode(&mut f, &mut result_file, checksum).map_err(From::from),
+        Decrypt => dl.decode(&mut f, &mut result_file)
+    };
+
+    match res {
+        Ok(()) => {
             println!("Result file has been saved to {}", to.to_str().unwrap_or("<nil>"))
         },
         Err(e) => match e {

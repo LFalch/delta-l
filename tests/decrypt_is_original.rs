@@ -1,31 +1,37 @@
 extern crate delta_l;
 
 use delta_l::DeltaL;
-use delta_l::Mode::*;
 
-use std::fs::File;
-use std::io::{Write, Read, Result as IOResult};
-
-const ORI_PATH: &'static str = "test_data/bench.txt";
-const RES_PATH: &'static str = "test_data/test.delta";
+const TEST_DATA: &'static[u8] = b"Hello, yes I'll be used for this test!";
 
 #[test]
 fn decrypt_is_orignal(){
-    let res_vec = DeltaL::new(Encrypt{checksum: true}).execute(File::open(ORI_PATH).unwrap()).unwrap();
-    File::create(RES_PATH).unwrap().write_all(&res_vec).unwrap();
+    let dl = DeltaL::new();
+    let test_data = TEST_DATA.to_vec();
+    let mut encrypted_data = Vec::new();
 
-    let dec_vec = DeltaL::new(Decrypt).execute(File::open(RES_PATH).unwrap()).unwrap();
+    dl.encode(&mut &*test_data, &mut encrypted_data, true).unwrap();
 
-    let original_vec = read(ORI_PATH).unwrap();
+    let mut dec_vec = Vec::new();
+    dl.decode(&mut &*encrypted_data, &mut dec_vec).unwrap();
 
-    assert_eq!(original_vec, dec_vec);
+    assert_eq!(test_data, &*dec_vec);
 }
 
-fn read(from_path: &str) -> IOResult<Vec<u8>>{
-    let mut f = try!(File::open(from_path));
-    let mut buffer = Vec::<u8>::new();
+#[test]
+fn decrypt_is_orignal_with_password(){
+    let mut dl = DeltaL::new();
 
-    try!(f.read_to_end(&mut buffer));
+    dl.set_passphrase("hejsa!");
 
-    Ok(buffer)
+    let test_data = TEST_DATA.to_vec();
+
+    let mut encrypted_data = Vec::new();
+
+    dl.encode(&mut &*test_data, &mut encrypted_data, true).unwrap();
+
+    let mut dec_vec = Vec::new();
+    dl.decode(&mut &*encrypted_data, &mut dec_vec).unwrap();
+
+    assert_eq!(test_data, &*dec_vec);
 }
