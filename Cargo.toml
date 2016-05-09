@@ -7,10 +7,11 @@ edition = "2018"
 [features]
 nightly = []
 
+[[bin]]
+doc = false
+name = "delta-l"
+
 [dependencies]
 getopts = "0.2"
 siphasher = "0.3"
-
-[[bin]]
-  name = "delta-l"
-  doc = false
+byteorder = "0.5"

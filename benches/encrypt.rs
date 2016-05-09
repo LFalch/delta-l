@@ -2,29 +2,28 @@
 #![feature(test)]
 
 extern crate test;
-extern crate delta_l;
-
-use delta_l::DeltaL;
+extern crate delta_l as dl;
 
 use std::fs::File;
-use std::io::sink;
+use std::io::Cursor;
 
 #[bench]
 fn encrypt(b: &mut test::Bencher){
     let mut f = File::open("test_data/bench.txt").unwrap();
-    let dl = DeltaL::new();
 
-    b.iter(|| test::black_box(dl.encode(&mut f, &mut sink(), true).unwrap()));
+    b.iter(|| dl::encode_with_checksum([0; 8], &mut f, &mut Cursor::new(Vec::new())).unwrap());
 }
 
 #[bench]
 fn decrypt(b: &mut test::Bencher){
-    let dl = DeltaL::new();
-
     let mut file = File::open("test_data/bench.txt").unwrap();
 
-    let mut enc_data = Vec::new();
-    dl.encode(&mut file, &mut enc_data, true).unwrap();
+    let mut enc_data = Cursor::new(Vec::new());
+    dl::encode_with_checksum([0; 8], &mut file, &mut enc_data).unwrap();
 
-    b.iter(|| test::black_box(dl.decode(&mut &*enc_data, &mut sink()).unwrap()));
+    enc_data.set_position(0);
+
+    println!("{:?}", enc_data);
+
+    b.iter(|| dl::decode([0; 8], &mut enc_data, &mut Cursor::new(Vec::new())).unwrap());
 }

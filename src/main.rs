@@ -1,7 +1,8 @@
 #![warn(clippy::all)]
 
-use delta_l::DeltaL;
-use delta_l::DecryptionError::{Io, InvalidHeader, ChecksumMismatch};
+use delta_l::Error::{Io, InvalidHeader, ChecksumMismatch};
+
+use delta_l as dl;
 
 use std::env;
 use std::string::String;
@@ -58,24 +59,15 @@ fn main() {
         _ => return incorrect_syntax()
     };
 
-    let mut dl = DeltaL::new();
-
     let to_file = matches.opt_str("o");
     let passphrase = matches.opt_str("p");
     let checksum = !matches.opt_present("c");
     let force = matches.opt_present("f");
     let force_overwite = matches.opt_present("y");
 
-    if !checksum {
-        if let Decrypt = mode{
-            println!("Checksum flag is only available when encrypting.\n");
-            return incorrect_syntax()
-        }
-    }
-
-    if let Some(pp) = passphrase{
-        dl.set_passphrase(&pp);
-    }
+    let passhash = if let Some(ref pp) = passphrase{
+        dl::get_passhash(pp)
+    }else{[0; 8]};
 
     let to: PathBuf = to_file
         .unwrap_or(file_path.to_owned() + mode.get_mode_standard_extension())
@@ -109,9 +101,14 @@ fn main() {
 
     let mut result_file = File::create(&to).unwrap();
 
-    let res = match mode{
-        Encrypt => dl.encode(&mut f, &mut result_file, checksum).map_err(From::from),
-        Decrypt => dl.decode(&mut f, &mut result_file)
+    let res = match (mode, checksum){
+        (Encrypt, true) => dl::encode_with_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
+        (Encrypt, false) => dl::encode_no_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
+        (Decrypt, true) => dl::decode(passhash, &mut f, &mut result_file),
+        (Decrypt, false) => {
+            println!("Checksum flag is only available when encrypting.\n");
+            return incorrect_syntax()
+        }
     };
 
     match res {
@@ -121,9 +118,8 @@ fn main() {
         Err(e) => match e {
             Io(e)         => println!("An unknown error occured, encrypting the file:\n{:?}", e.kind()),
             InvalidHeader => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
-            ChecksumMismatch(res_vec) => if force{
+            ChecksumMismatch => if force{
                     println!("Checksum mismatch detetected! Saving anyways because of force flag");
-                    save(&res_vec, &to).unwrap();
                 }else{
                     println!("Decryption failed:\nIncorrect passphrase.")
                 }
@@ -133,14 +129,6 @@ fn main() {
 
 use std::path::PathBuf;
 use std::fs::File;
-use std::io::{Write, Result as IOResult};
-
-fn save(res_vec: &[u8], to_path: &PathBuf) -> IOResult<()>{
-    let mut result_file = r#try!(File::create(to_path));
-
-    result_file.write_all(&res_vec)
-}
-
 
 const USAGE: &str = r#"Delta L encryption program
 
@@ -152,6 +140,7 @@ Modes:
     e[ncrypt]           Encrypts a file
     d[ecrypt]           Decrypts a file"#;
 
+#[inline]
 fn incorrect_syntax(){
     println!("Incorrect syntax:\n    Type delta-l -? for help")
 }
