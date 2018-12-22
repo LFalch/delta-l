@@ -10,7 +10,7 @@ use std::hash::Hasher;
 use siphasher::sip::SipHasher;
 
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Write, Seek, SeekFrom};
 
 use std::error::Error as ErrorTrait;
 
@@ -82,28 +82,30 @@ pub fn encode_no_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, des
 }
 
 /// Encodes the `src` into `dest` using the checksum header
-pub fn encode_with_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
+pub fn encode_with_checksum<R: Read, W: Write + Seek>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
     // Write header (ΔL\n)
     dest.write_all(b"\xCE\x94L\n")?;
+    dest.write_all(b"HASHCODE")?;
 
-    let mut coded_buffer = Vec::new();
     let mut hasher = SipHasher::new();
 
     let mut last = 0;
     for (i, b) in src.bytes().enumerate(){
         let b = b?;
 
-        coded_buffer.push(b.wrapping_add(passhash[i & 7]).wrapping_add(last));
-        hasher.write(&[b]);
+        dest.write_all(&[b.wrapping_add(passhash[i & 7]).wrapping_add(last)])?;
+        hasher.write_u8(b);
 
         last = b;
     }
+    dest.flush()?;
 
     let mut checksum = [0; 8];
     LittleEndian::write_u64(&mut checksum, hasher.finish());
 
+    dest.seek(SeekFrom::Start(4))?;
     dest.write_all(&checksum)?;
-    dest.write_all(&coded_buffer)?;
+
     dest.flush().map_err(Into::into)
 }
 
