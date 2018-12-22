@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 
-use delta_l::Error::{Io, InvalidHeader, ChecksumMismatch};
+use delta_l::header::Error::{Io, InvalidHeader, ChecksumMismatch};
 
 use delta_l as dl;
 
@@ -64,8 +64,8 @@ fn main() {
     let force_overwite = matches.opt_present("y");
 
     let passhash = if let Some(ref pp) = passphrase{
-        dl::get_passhash(pp)
-    }else{[0; 8]};
+        dl::PassHashOffsetter::new(pp)
+    }else{Default::default()};
 
     let to: PathBuf = to_file
         .unwrap_or(file_path.to_owned() + mode.get_mode_standard_extension())

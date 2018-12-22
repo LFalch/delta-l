@@ -3,166 +3,192 @@
 
 use byteorder::{LittleEndian, ByteOrder};
 
-pub use self::Error::{Io, InvalidHeader, ChecksumMismatch};
+use std::io::{Result, Write, Read};
 
 use std::hash::Hasher;
-
 use siphasher::sip::SipHasher;
 
-use std::fmt;
-use std::io::{self, Read, Write, Seek, SeekFrom};
+pub mod header;
 
-use std::error::Error as ErrorTrait;
+pub use crate::header::{decode, encode_no_checksum, encode_with_checksum};
 
-/// Result alias for convenience
-pub type Result = std::result::Result<(), Error>;
-
-/// Wrapper for errors that can occur during decryption
-#[derive(Debug)]
-pub enum Error{
-    /// Errors that are just plain IO errors
-    Io(io::Error),
-    /// Invalid header error
-    InvalidHeader,
-    /// Checksum mismatch error
-    ChecksumMismatch,
+/// Offsets for delta-l
+pub trait Offset {
+    /// Return the next offset
+    fn next_offset(&mut self) -> u8;
+    /// Turn the state one back, as if it hadn't made that last `next_offset` call
+    ///
+    /// Does not check whether `next_offset` has ever been called and there are no guarantees
+    /// for its state if it's called before any `next_offset` calls
+    fn step_back(&mut self);
+    /// Reset the state of the offsetter
+    fn reset(&mut self);
 }
 
-impl fmt::Display for Error{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
-        match *self{
-            Io(ref err)      => err.fmt(f),
-            InvalidHeader    => write!(f, "The header was not valid."),
-            ChecksumMismatch => write!(f, "The checksum of the output file did not match the checksum in the header."),
+#[derive(Default, Debug, Clone, Copy)]
+/// An implementation of [`Offset`] using the sip hash of a string
+pub struct PassHashOffsetter {
+    pass_hash: [u8; 8],
+    index: usize,
+}
+
+impl PassHashOffsetter {
+    /// Makes a new instance using the given string
+    pub fn new(passphrase: &str) -> Self {
+        let mut siphasher = SipHasher::new();
+        siphasher.write(passphrase.as_bytes());
+
+        let mut pass_hash = [0; 8];
+        LittleEndian::write_u64(&mut pass_hash, siphasher.finish());
+
+        Self {
+            pass_hash,
+            index: 0,
         }
     }
 }
 
-impl ErrorTrait for Error{
-    fn description(&self) -> &str{
-        match *self{
-            Io(ref err)      => err.description(),
-            InvalidHeader    => "header wasn't valid",
-            ChecksumMismatch => "checksum of output file didn't match header checksum",
+impl Offset for PassHashOffsetter {
+    #[inline]
+    fn next_offset(&mut self) -> u8 {
+        let ret = unsafe {*self.pass_hash.get_unchecked(self.index)};
+        self.index = (self.index + 1) & 7;
+        ret
+    }
+    #[inline]
+    fn step_back(&mut self) {
+        self.index = (self.index + 7) & 7;
+    }
+    #[inline]
+    fn reset(&mut self) {
+        self.index = 0;
+    }
+}
+
+/// Returns 0 only
+pub struct ZeroOffset;
+impl Offset for ZeroOffset {
+    #[inline]
+    fn next_offset(&mut self) -> u8 {
+        0
+    }
+    #[inline]
+    fn step_back(&mut self) { }
+    #[inline]
+    fn reset(&mut self) { }
+}
+
+// TODO Implement `Seek` so that the `last` will be the right value and `offsetter` will have
+// the correct state
+
+#[derive(Debug, Clone)]
+/// A `Write`r that writes each byte according to the delta encoding
+pub struct DeltaWrite<T: Write, O: Offset> {
+    last: u8,
+    inner: T,
+    offsetter: O
+}
+
+impl<T: Write> DeltaWrite<T, ZeroOffset> {
+    /// Returns a `DeltaWrite` without offsetting
+    #[inline]
+    pub fn new(inner: T) -> Self {
+        Self::with_offsetter(inner, ZeroOffset)
+    }
+}
+
+impl<T: Write, O: Offset> DeltaWrite<T, O> {
+    /// Returns a `DeltaWrite`r with a given `Offsetter`
+    #[inline]
+    pub fn with_offsetter(inner: T, offsetter: O) -> Self {
+        Self {
+            inner,
+            offsetter,
+            last: 0,
         }
     }
-}
-
-impl From<io::Error> for Error{
-    fn from(e: io::Error) -> Error{
-        Error::Io(e)
+    /// Returns a the inner `Write`r
+    #[inline]
+    pub fn into_inner(self) -> T {
+        let Self{inner, ..} = self;
+        inner
     }
 }
 
-/// Generates a passhash from the given passphrase
-#[inline]
-pub fn get_passhash(passphrase: &str) -> [u8; 8]{
-    let mut siphasher = SipHasher::new();
-    siphasher.write(passphrase.as_bytes());
-
-    let mut ret = [0; 8];
-    LittleEndian::write_u64(&mut ret, siphasher.finish());
-    ret
-}
-
-/// Encodes the `src` into `dest` using the **no** checksum header
-pub fn encode_no_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
-    // Write header (Δl\n)
-    dest.write_all(b"\xCE\x94l\n")?;
-
-    let mut last: u8 = 0;
-
-    for (i, b) in src.bytes().enumerate(){
-        let b = b?;
-        dest.write_all(&[b.wrapping_add(passhash[i & 7]).wrapping_add(last)])?;
-        last = b;
-    }
-
-    dest.flush().map_err(Into::into)
-}
-
-/// Encodes the `src` into `dest` using the checksum header
-pub fn encode_with_checksum<R: Read, W: Write + Seek>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
-    // Write header (ΔL\n)
-    dest.write_all(b"\xCE\x94L\n")?;
-    dest.write_all(b"HASHCODE")?;
-
-    let mut hasher = SipHasher::new();
-
-    let mut last = 0;
-    for (i, b) in src.bytes().enumerate(){
-        let b = b?;
-
-        dest.write_all(&[b.wrapping_add(passhash[i & 7]).wrapping_add(last)])?;
-        hasher.write_u8(b);
-
-        last = b;
-    }
-    dest.flush()?;
-
-    let mut checksum = [0; 8];
-    LittleEndian::write_u64(&mut checksum, hasher.finish());
-
-    dest.seek(SeekFrom::Start(4))?;
-    dest.write_all(&checksum)?;
-
-    dest.flush().map_err(Into::into)
-}
-
-/// Decodes the `src` into `dest` determining whether to check checksum based on header
-pub fn decode<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
-    let mut header = [0; 4];
-    src.read_exact(&mut header)?;
-
-    if (header[0], header[1], header[3]) == (206, 148, 10) {
-        match header[2]{
-            b'L' => {
-                let mut cs = [0; 8];
-                src.read_exact(&mut cs)?;
-                let checksum = LittleEndian::read_u64(&cs);
-                decode_with_checksum(passhash, checksum, src, dest)
-            },
-            b'l' => {
-                decode_no_checksum(passhash, src, dest)
-            },
-            _ => Err(InvalidHeader)
+impl<T: Write, O: Offset> Write for DeltaWrite<T, O> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        let mut total_len = 0;
+        for &b in buf {
+            let byte2write = b.wrapping_add(self.offsetter.next_offset()).wrapping_add(self.last);
+            match self.inner.write(&[byte2write])? {
+                0 => {
+                    self.offsetter.step_back();
+                    return Ok(total_len)
+                },
+                n => total_len += n,
+            }
+            self.last = b;
         }
-    }else{
-        Err(InvalidHeader)
+        debug_assert_eq!(total_len, buf.len());
+        Ok(total_len)
+    }
+    #[inline]
+    fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+        for &b in buf {
+            let byte2write = b.wrapping_add(self.offsetter.next_offset()).wrapping_add(self.last);
+            self.last = b;
+            self.inner.write_all(&[byte2write])?;
+        }
+        Ok(())
+    }
+    #[inline]
+    fn flush(&mut self) -> Result<()> {
+        self.inner.flush()
     }
 }
 
-
-fn decode_with_checksum<R: Read, W: Write>(passhash: [u8; 8], checksum: u64, src: &mut R, dest: &mut W) -> Result {
-    let mut last = 0;
-    let mut hasher = SipHasher::new();
-
-    for (i, b) in src.bytes().enumerate(){
-        let b = b?;
-
-        // Subtract byte last read when decrypting
-        last = b.wrapping_sub(passhash[i & 7]).wrapping_sub(last);
-        dest.write_all(&[last])?;
-        hasher.write_u8(last);
-    }
-
-    if checksum != hasher.finish(){
-        return Err(ChecksumMismatch)
-    }
-
-    dest.flush().map_err(Into::into)
+#[derive(Debug, Clone)]
+/// A `Read`er that reads each byte according to the delta encoding
+pub struct DeltaRead<T: Read, O: Offset> {
+    last: u8,
+    inner: T,
+    offsetter: O,
 }
 
-fn decode_no_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result {
-    let mut last = 0;
-
-    for (i, b) in src.bytes().enumerate(){
-        let b = b?;
-
-        // Subtract byte last read when decrypting
-        last = b.wrapping_sub(passhash[i & 7]).wrapping_sub(last);
-        dest.write_all(&[last])?;
+impl<T: Read> DeltaRead<T, ZeroOffset> {
+    /// Returns a `DeltaRead` without offsetting
+    #[inline]
+    pub fn new(inner: T) -> Self {
+        Self::with_offsetter(inner, ZeroOffset)
     }
+}
 
-    dest.flush().map_err(Into::into)
+impl<T: Read, O: Offset> DeltaRead<T, O> {
+    /// Returns a `DeltaRead`er with a given `Offsetter`
+    #[inline]
+    pub fn with_offsetter(inner: T, offsetter: O) -> Self {
+        Self {
+            inner,
+            offsetter,
+            last: 0,
+        }
+    }
+    /// Returns a the inner `Read`er
+    #[inline]
+    pub fn into_inner(self) -> T {
+        let Self{inner, ..} = self;
+        inner
+    }
+}
+
+impl<T: Read, O: Offset> Read for DeltaRead<T, O> {
+    #[inline]
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let n = self.inner.read(buf)?;
+        for b in &mut buf[..n] {
+            self.last = b.wrapping_sub(self.offsetter.next_offset()).wrapping_sub(self.last);
+            *b = self.last;
+        }
+        Ok(n)
+    }
 }

@@ -26,22 +26,27 @@ impl Seek for SeekableSink {
     }
 }
 
+fn def() -> delta_l::PassHashOffsetter {
+    Default::default()
+}
+
+
 #[bench]
 fn encrypt(b: &mut test::Bencher){
-    b.iter(|| test::black_box(dl::encode_with_checksum([0; 8], &mut TEST_DATA, &mut SeekableSink::default())).unwrap());
+    b.iter(|| test::black_box(dl::encode_with_checksum(def(), &mut TEST_DATA, &mut SeekableSink::default())).unwrap());
 }
 
 #[bench]
 fn encrypt_no_checksum(b: &mut test::Bencher){
-    b.iter(|| test::black_box(dl::encode_no_checksum([0; 8], &mut TEST_DATA, &mut SeekableSink::default())).unwrap());
+    b.iter(|| test::black_box(dl::encode_no_checksum(def(), &mut TEST_DATA, &mut SeekableSink::default())).unwrap());
 }
 
 #[bench]
 fn decrypt(b: &mut test::Bencher){
-    b.iter(|| test::black_box(dl::decode([0; 8], &mut TEST_DATA_DELTA, &mut SeekableSink::default())).unwrap());
+    b.iter(|| test::black_box(dl::decode(def(), &mut TEST_DATA_DELTA, &mut SeekableSink::default())).unwrap());
 }
 
 #[bench]
 fn decrypt_no_checksum(b: &mut test::Bencher){
-    b.iter(|| test::black_box(dl::decode([0; 8], &mut TEST_DATA_DELTA_NOC, &mut SeekableSink::default())).unwrap());
+    b.iter(|| test::black_box(dl::decode(def(), &mut TEST_DATA_DELTA_NOC, &mut SeekableSink::default())).unwrap());
 }
