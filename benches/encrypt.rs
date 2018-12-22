@@ -8,6 +8,7 @@ use std::io::{Write, Seek, SeekFrom, Result};
 
 const TEST_DATA: &'static[u8] = include_bytes!("../test_data/bench.txt");
 const TEST_DATA_DELTA: &'static[u8] = include_bytes!("../test_data/bench.txt.delta");
+const TEST_DATA_DELTA_NOC: &'static[u8] = include_bytes!("../test_data/bench.txt.delta-noc");
 
 #[derive(Default, Debug, Clone)]
 struct SeekableSink(());
@@ -31,6 +32,16 @@ fn encrypt(b: &mut test::Bencher){
 }
 
 #[bench]
+fn encrypt_no_checksum(b: &mut test::Bencher){
+    b.iter(|| test::black_box(dl::encode_no_checksum([0; 8], &mut TEST_DATA, &mut SeekableSink::default())).unwrap());
+}
+
+#[bench]
 fn decrypt(b: &mut test::Bencher){
     b.iter(|| test::black_box(dl::decode([0; 8], &mut TEST_DATA_DELTA, &mut SeekableSink::default())).unwrap());
+}
+
+#[bench]
+fn decrypt_no_checksum(b: &mut test::Bencher){
+    b.iter(|| test::black_box(dl::decode([0; 8], &mut TEST_DATA_DELTA_NOC, &mut SeekableSink::default())).unwrap());
 }
