@@ -1,5 +1,3 @@
-extern crate delta_l;
-
 use delta_l::DeltaL;
 
 const TEST_DATA: &'static[u8] = b"Hello, yes I'll be used for this test!";

@@ -1,8 +1,7 @@
-extern crate delta_l as dl;
-extern crate getopts;
+#![warn(clippy::all)]
 
-use dl::DeltaL;
-use dl::DecryptionError::{Io, InvalidHeader, ChecksumMismatch};
+use delta_l::DeltaL;
+use delta_l::DecryptionError::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::env;
 use std::string::String;
@@ -17,15 +16,15 @@ enum Mode{
 }
 
 impl Mode{
-    fn get_mode_standard_extension(&self) -> &'static str{
-        match *self{
+    fn get_mode_standard_extension(self) -> &'static str{
+        match self{
             Encrypt => ".delta",
             Decrypt => ".dec"
         }
     }
 }
 
-use Mode::*;
+use crate::Mode::*;
 
 fn main() {
     let args = &env::args().collect::<Vec<String>>()[1..];
@@ -92,7 +91,7 @@ fn main() {
             let mut answer = String::new();
             stdin.read_line(&mut answer).unwrap();
 
-            match answer.trim().as_ref(){
+            match answer.trim() {
                 "yes" => break,
                 "no"  => return println!("{}cryption has been cancelled.", if let Encrypt = mode {"En"} else {"De"}),
                 _ => println!("Please answer yes or no:"),
@@ -124,7 +123,7 @@ fn main() {
             InvalidHeader => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
             ChecksumMismatch(res_vec) => if force{
                     println!("Checksum mismatch detetected! Saving anyways because of force flag");
-                    save(res_vec, &to).unwrap();
+                    save(&res_vec, &to).unwrap();
                 }else{
                     println!("Decryption failed:\nIncorrect passphrase.")
                 }
@@ -136,14 +135,14 @@ use std::path::PathBuf;
 use std::fs::File;
 use std::io::{Write, Result as IOResult};
 
-fn save(res_vec: Vec<u8>, to_path: &PathBuf) -> IOResult<()>{
-    let mut result_file = try!(File::create(to_path));
+fn save(res_vec: &[u8], to_path: &PathBuf) -> IOResult<()>{
+    let mut result_file = r#try!(File::create(to_path));
 
     result_file.write_all(&res_vec)
 }
 
 
-const USAGE: &'static str = r#"Delta L encryption program
+const USAGE: &str = r#"Delta L encryption program
 
 Usage:
     delta-l <MODE> <FILE> [OPTIONS]

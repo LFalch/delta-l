@@ -1,8 +1,11 @@
 //! Crate for using Delta-L encryption
-#![warn(missing_docs)]
+#![warn(missing_docs, clippy::all)]
+
 pub use self::DecryptionError::{Io, InvalidHeader, ChecksumMismatch};
 
-use std::hash::{Hasher, SipHasher};
+use std::hash::Hasher;
+
+use siphasher::sip::SipHasher;
 
 use std::fmt;
 use std::io;
@@ -25,7 +28,7 @@ pub enum DecryptionError{
 }
 
 impl fmt::Display for DecryptionError{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result{
         match *self{
             Io(ref err)          => err.fmt(f),
             InvalidHeader        => write!(f, "The header was not valid."),
@@ -56,12 +59,18 @@ pub struct DeltaL{
     passhash: [u8; 8]
 }
 
-impl DeltaL{
-    /// Creates a `DeltaL` instance
-    pub fn new() -> DeltaL{
+impl Default for DeltaL {
+    fn default() -> Self {
         DeltaL{
             passhash: [0; 8]
         }
+    }
+}
+
+impl DeltaL{
+    /// Creates a `DeltaL` instance
+    pub fn new() -> DeltaL{
+        Self::default()
     }
 
     /// Sets the passphrase for the `DeltaL`
@@ -70,23 +79,23 @@ impl DeltaL{
     }
 
     /// Encodes
-    pub fn encode<R: Read, W: Write>(&self, src: &mut R, dest: &mut W, checksum: bool) -> io::Result<()>{
+    pub fn encode<R: Read, W: Write>(self, src: &mut R, dest: &mut W, checksum: bool) -> io::Result<()>{
         let mut buffer = Vec::<u8>::new();
 
-        try!(src.read_to_end(&mut buffer));
+        src.read_to_end(&mut buffer)?;
 
         // Do header related things
 
         // Makes delta symbol: Δ
-        try!(dest.write(&[206, 148]));
+        dest.write_all(&[206, 148])?;
 
         // Capital L if checksum is enabled, lowercase if disabled
         if checksum {
-            try!(dest.write(b"L\n"));
+            dest.write_all(b"L\n")?;
 
-            try!(dest.write(&hash_as_array(&buffer)));
+            dest.write_all(&hash_as_array(&buffer))?;
         } else {
-            try!(dest.write(b"l\n"));
+            dest.write_all(b"l\n")?;
         }
 
         let mut last: u8 = 0;
@@ -96,22 +105,22 @@ impl DeltaL{
             .enumerate()
             .map(|(i, b)|{
                 // Add last byte when encrypting
-                let ret = b.wrapping_add(self.passhash[i % 8]).wrapping_add(last);
+                let ret = b.wrapping_add(self.passhash[i & 7]).wrapping_add(last);
                 last = b;
                 ret
             }).collect();
 
-        try!(dest.write_all(&coded_buffer));
-        try!(dest.flush());
+        dest.write_all(&coded_buffer)?;
+        dest.flush()?;
 
         Ok(())
     }
 
     /// Decodes
-    pub fn decode<R: Read, W: Write>(&self, src: &mut R, dest: &mut W) -> Result<()>{
+    pub fn decode<R: Read, W: Write>(self, src: &mut R, dest: &mut W) -> Result<()>{
         let mut buffer = Vec::<u8>::new();
 
-        try!(src.read_to_end(&mut buffer));
+        src.read_to_end(&mut buffer)?;
 
         let skip;
         let mut checksum: Option<[u8; 8]> = None;
@@ -119,13 +128,11 @@ impl DeltaL{
         // Do header related things
         if buffer.len() > 3 && (buffer[0], buffer[1], buffer[3]) == (206, 148, 10) {
             match buffer[2]{
-                // 76 = 'L'
-                76 if buffer.len() > 11 => {
+                b'L' if buffer.len() > 11 => {
                     checksum = Some(slice_to_array(&buffer[4..12]));
                     skip = 12;
                 },
-                // 108 = 'l'
-                108 => {
+                b'l' => {
                     skip = 4;
                 },
                 _ => return Err(InvalidHeader)
@@ -142,7 +149,7 @@ impl DeltaL{
             .enumerate()
             .map(|(i, b)| {
                 // Subtract byte last read when decrypting
-                last = b.wrapping_sub(self.passhash[i % 8]).wrapping_sub(last);
+                last = b.wrapping_sub(self.passhash[i & 7]).wrapping_sub(last);
                 last
             })
             .collect();
@@ -153,8 +160,8 @@ impl DeltaL{
             }
         }
 
-        try!(dest.write_all(&coded_buffer));
-        try!(dest.flush());
+        dest.write_all(&coded_buffer)?;
+        dest.flush()?;
 
         Ok(())
     }
