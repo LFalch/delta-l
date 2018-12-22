@@ -36,7 +36,6 @@ fn main() {
     opts.optopt("o", "", "Sets the output file.", "<output-file>");
     opts.optflag("y", "yes", "Overwrites output file without prompt, if it already exists.");
     opts.optflag("c", "checksum", "Disables checksum feature when encrypting: - This is read from the header when decrypting.");
-    opts.optflag("f", "force", "Forces the resulting file to be created even if the checksums mismatch during decryption.");
 
     let matches = match opts.parse(args){
         Ok(m) => m,
@@ -62,7 +61,6 @@ fn main() {
     let to_file = matches.opt_str("o");
     let passphrase = matches.opt_str("p");
     let checksum = !matches.opt_present("c");
-    let force = matches.opt_present("f");
     let force_overwite = matches.opt_present("y");
 
     let passhash = if let Some(ref pp) = passphrase{
@@ -118,11 +116,7 @@ fn main() {
         Err(e) => match e {
             Io(e)         => println!("An unknown error occured, encrypting the file:\n{:?}", e.kind()),
             InvalidHeader => println!("Invalid header error:\nThe specified file wasn't a valid .delta file."),
-            ChecksumMismatch => if force{
-                    println!("Checksum mismatch detetected! Saving anyways because of force flag");
-                }else{
-                    println!("Decryption failed:\nIncorrect passphrase.")
-                }
+            ChecksumMismatch => println!("Checksum mismatch detetected!\nPassphrase is probably incorrect."),
         },
     }
 }

@@ -1,7 +1,6 @@
 //! Crate for using Delta-L encryption
 #![warn(missing_docs, clippy::all)]
 
-extern crate byteorder;
 use byteorder::{LittleEndian, ByteOrder};
 
 pub use self::Error::{Io, InvalidHeader, ChecksumMismatch};
@@ -15,6 +14,7 @@ use std::io::{self, Read, Write};
 
 use std::error::Error as ErrorTrait;
 
+/// Result alias for convenience
 pub type Result = std::result::Result<(), Error>;
 
 /// Wrapper for errors that can occur during decryption
@@ -65,6 +65,7 @@ pub fn get_passhash(passphrase: &str) -> [u8; 8]{
     ret
 }
 
+/// Encodes the `src` into `dest` using the **no** checksum header
 pub fn encode_no_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
     // Write header (Δl\n)
     dest.write_all(b"\xCE\x94l\n")?;
@@ -80,6 +81,7 @@ pub fn encode_no_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, des
     dest.flush().map_err(Into::into)
 }
 
+/// Encodes the `src` into `dest` using the checksum header
 pub fn encode_with_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
     // Write header (ΔL\n)
     dest.write_all(b"\xCE\x94L\n")?;
@@ -87,16 +89,11 @@ pub fn encode_with_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, d
     let mut coded_buffer = Vec::new();
     let mut hasher = SipHasher::new();
 
-    let mut checksum = [0; 8];
-    // Write some placeholder bytes for the checksum
-    dest.write_all(&checksum)?;
-
-    let mut last: u8 = 0;
-
+    let mut last = 0;
     for (i, b) in src.bytes().enumerate(){
         let b = b?;
 
-        dest.write_all(&[b.wrapping_add(passhash[i & 7]).wrapping_add(last)])?;
+        coded_buffer.push(b.wrapping_add(passhash[i & 7]).wrapping_add(last));
         hasher.write(&[b]);
 
         last = b;
@@ -105,33 +102,37 @@ pub fn encode_with_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, d
     let mut checksum = [0; 8];
     LittleEndian::write_u64(&mut checksum, hasher.finish());
 
-    dest.seek(SeekFrom::Start(4))?;
     dest.write_all(&checksum)?;
-
+    dest.write_all(&coded_buffer)?;
     dest.flush().map_err(Into::into)
 }
 
+/// Decodes the `src` into `dest` determining whether to check checksum based on header
 pub fn decode<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result{
     let mut header = [0; 4];
-    src.read(&mut header)?;
+    src.read_exact(&mut header)?;
 
-    let checksum = if (header[0], header[1], header[3]) == (206, 148, 10) {
+    if (header[0], header[1], header[3]) == (206, 148, 10) {
         match header[2]{
             b'L' => {
                 let mut cs = [0; 8];
                 src.read_exact(&mut cs)?;
-                Some(LittleEndian::read_u64(&cs))
+                let checksum = LittleEndian::read_u64(&cs);
+                decode_with_checksum(passhash, checksum, src, dest)
             },
             b'l' => {
-                None
+                decode_no_checksum(passhash, src, dest)
             },
-            _ => return Err(InvalidHeader)
+            _ => Err(InvalidHeader)
         }
     }else{
-        return Err(InvalidHeader)
-    };
+        Err(InvalidHeader)
+    }
+}
 
-    let mut last: u8 = 0;
+
+fn decode_with_checksum<R: Read, W: Write>(passhash: [u8; 8], checksum: u64, src: &mut R, dest: &mut W) -> Result {
+    let mut last = 0;
     let mut hasher = SipHasher::new();
 
     for (i, b) in src.bytes().enumerate(){
@@ -139,16 +140,26 @@ pub fn decode<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -
 
         // Subtract byte last read when decrypting
         last = b.wrapping_sub(passhash[i & 7]).wrapping_sub(last);
-        dest.write(&[last])?;
-        if checksum.is_some(){
-            hasher.write(&[last])
-        }
+        dest.write_all(&[last])?;
+        hasher.write_u8(last);
     }
 
-    if let Some(c) = checksum {
-        if c != hasher.finish(){
-            return Err(ChecksumMismatch)
-        }
+    if checksum != hasher.finish(){
+        return Err(ChecksumMismatch)
+    }
+
+    dest.flush().map_err(Into::into)
+}
+
+fn decode_no_checksum<R: Read, W: Write>(passhash: [u8; 8], src: &mut R, dest: &mut W) -> Result {
+    let mut last = 0;
+
+    for (i, b) in src.bytes().enumerate(){
+        let b = b?;
+
+        // Subtract byte last read when decrypting
+        last = b.wrapping_sub(passhash[i & 7]).wrapping_sub(last);
+        dest.write_all(&[last])?;
     }
 
     dest.flush().map_err(Into::into)
