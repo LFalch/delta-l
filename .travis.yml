@@ -6,10 +6,6 @@ rust:
 matrix:
   allow_failures:
     - rust: nightly
-install:
-  - |
-    mkdir test_data &&
-    curl http://shakespeare.mit.edu/midsummer/full.html > test_data/bench.txt
 after_success:
   - |
     [ $TRAVIS_RUST_VERSION = nightly ] &&
