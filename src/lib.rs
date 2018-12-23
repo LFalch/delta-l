@@ -66,6 +66,7 @@ impl Offset for PassHashOffsetter {
 }
 
 /// Returns 0 only
+#[derive(Debug, Clone, Copy)]
 pub struct ZeroOffset;
 impl Offset for ZeroOffset {
     #[inline]

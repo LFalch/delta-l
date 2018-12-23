@@ -6,12 +6,8 @@ use byteorder::{LittleEndian, ByteOrder};
 
 pub use self::Error::{Io, InvalidHeader, ChecksumMismatch};
 
-use std::hash::Hasher;
-
-use siphasher::sip::SipHasher;
-
 use std::fmt;
-use std::io::{self, Read, BufReader, Write, Seek, SeekFrom};
+use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::error::Error as ErrorTrait;
 
 use crate::{Offset, DeltaWrite, DeltaRead};
@@ -29,6 +25,10 @@ pub enum Error{
     /// Checksum mismatch error
     ChecksumMismatch,
 }
+
+mod hashing_io;
+
+use self::hashing_io::{HashingRead, HashingWrite};
 
 impl fmt::Display for Error{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result{
@@ -72,20 +72,15 @@ pub fn encode_with_checksum<O: Offset, R: Read, W: Write + Seek>(offsetter: O, s
     dest.write_all(b"\xCE\x94L\n")?;
     dest.write_all(b"HASHCODE")?;
 
-    let mut hasher = SipHasher::new();
-
+    let mut src = HashingRead::new(src);
     let mut dest = DeltaWrite::with_offsetter(dest, offsetter);
-    for b in src.bytes() {
-        let b = b?;
-
-        dest.write_all(&[b])?;
-        hasher.write_u8(b);
-    }
+    io::copy(&mut src, &mut dest)?;
     dest.flush()?;
+    let (_, hash) = src.into_inner();
     let dest = dest.into_inner();
 
     let mut checksum = [0; 8];
-    LittleEndian::write_u64(&mut checksum, hasher.finish());
+    LittleEndian::write_u64(&mut checksum, hash);
 
     dest.seek(SeekFrom::Start(4))?;
     dest.write_all(&checksum)?;
@@ -115,16 +110,13 @@ pub fn decode<O: Offset, R: Read, W: Write>(offsetter: O, src: &mut R, dest: &mu
 }
 
 fn decode_with_checksum<O: Offset, R: Read, W: Write>(offsetter: O, checksum: u64, src: &mut R, dest: &mut W) -> Result {
-    let src = DeltaRead::with_offsetter(src, offsetter);
-    let mut hasher = SipHasher::new();
+    let mut src = DeltaRead::with_offsetter(src, offsetter);
+    let mut dest = HashingWrite::new(dest);
 
-    for b in src.bytes() {
-        let b = b?;
-        dest.write_all(&[b])?;
-        hasher.write_u8(b);
-    }
+    io::copy(&mut src, &mut dest)?;
+    let (dest, hash) = dest.into_inner();
 
-    if checksum != hasher.finish(){
+    if checksum != hash {
         return Err(ChecksumMismatch)
     }
 
