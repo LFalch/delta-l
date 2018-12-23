@@ -4,7 +4,7 @@
 
 use byteorder::{LittleEndian, ByteOrder};
 
-pub use self::Error::{Io, InvalidHeader, ChecksumMismatch};
+use self::Error::{Io, InvalidHeader, ChecksumMismatch};
 
 use std::fmt;
 use std::io::{self, Read, Write, Seek, SeekFrom};

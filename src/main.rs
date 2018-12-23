@@ -1,8 +1,7 @@
 #![warn(clippy::all)]
 
+use delta_l::{PassHashOffsetter, encode_no_checksum, encode_with_checksum, decode};
 use delta_l::header::Error::{Io, InvalidHeader, ChecksumMismatch};
-
-use delta_l as dl;
 
 use std::env;
 use std::string::String;
@@ -64,7 +63,7 @@ fn main() {
     let force_overwite = matches.opt_present("y");
 
     let passhash = if let Some(ref pp) = passphrase{
-        dl::PassHashOffsetter::new(pp)
+        PassHashOffsetter::new(pp)
     }else{Default::default()};
 
     let to: PathBuf = to_file
@@ -100,9 +99,9 @@ fn main() {
     let mut result_file = File::create(&to).unwrap();
 
     let res = match (mode, checksum){
-        (Encrypt, true) => dl::encode_with_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
-        (Encrypt, false) => dl::encode_no_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
-        (Decrypt, true) => dl::decode(passhash, &mut f, &mut result_file),
+        (Encrypt, true) => encode_with_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
+        (Encrypt, false) => encode_no_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
+        (Decrypt, true) => decode(passhash, &mut f, &mut result_file),
         (Decrypt, false) => {
             println!("Checksum flag is only available when encrypting.\n");
             return incorrect_syntax()
