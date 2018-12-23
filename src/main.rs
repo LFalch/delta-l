@@ -3,12 +3,11 @@
 use delta_l::{PassHashOffsetter, encode_no_checksum, encode_with_checksum, decode};
 use delta_l::header::Error::{Io, InvalidHeader, ChecksumMismatch};
 
-use std::env;
-use std::string::String;
-
+use std::path::PathBuf;
+use std::fs::File;
 use std::io::ErrorKind::NotFound;
 
-use getopts::Options;
+use clap::{App, Arg};
 
 #[derive(Debug, Copy, Clone)]
 enum Mode{
@@ -27,46 +26,54 @@ impl Mode{
 use crate::Mode::*;
 
 fn main() {
-    let args = &env::args().collect::<Vec<String>>()[1..];
+    let matches = App::new(env!("CARGO_PKG_NAME"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
+        .about(env!("CARGO_PKG_DESCRIPTION"))
+        .arg(Arg::with_name("MODE").required(true).possible_values(&["e", "encrypt", "d", "decrypt"]).help("Whether to encrypt or decrypt"))
+        .arg(Arg::with_name("FILE").required(true).help("File to encrypt or decrypt"))
+        .arg(Arg::with_name("passphrase")
+            .short("p")
+            .long("pass")
+            .takes_value(true)
+            .help("Encrypts/decrypts with a passphrase"),
+        )
+        .arg(Arg::with_name("output-file")
+            .short("o")
+            .long("out")
+            .takes_value(true)
+            .help("Sets the output file"),
+        )
+        .arg(Arg::with_name("yes")
+            .short("y")
+            .long("yes")
+            .help("Overwrites output file without prompt, if it already exists"),
+        )
+        .arg(Arg::with_name("checksum")
+            .short("c")
+            .long("checksum")
+            .help("Disables checksum feature when encrypting: - This is read from the header when decrypting"),
+        )
+        .get_matches();
 
-    let mut opts = Options::new();
-    opts.optflag("?", "help", "Prints this help menu.");
-    opts.optopt("p", "", "Encrypts/decrypts with a passphrase.", "<passphrase>");
-    opts.optopt("o", "", "Sets the output file.", "<output-file>");
-    opts.optflag("y", "yes", "Overwrites output file without prompt, if it already exists.");
-    opts.optflag("c", "checksum", "Disables checksum feature when encrypting: - This is read from the header when decrypting.");
+    let file_path = matches.value_of("FILE").unwrap();
 
-    let matches = match opts.parse(args){
-        Ok(m) => m,
-        Err(_) => return incorrect_syntax(),
-    };
-
-    if matches.opt_present("?"){
-        return print!("{}", opts.usage(USAGE));
-    }
-
-    if matches.free.len() != 2{
-        return incorrect_syntax();
-    }
-
-    let file_path = &*matches.free[1];
-
-    let mode = match &*matches.free[0]{
+    let mode = match matches.value_of("MODE").unwrap() {
         "e"|"encrypt" => Encrypt,
         "d"|"decrypt" => Decrypt,
-        _ => return incorrect_syntax()
+        _ => unreachable!()
     };
 
-    let to_file = matches.opt_str("o");
-    let passphrase = matches.opt_str("p");
-    let checksum = !matches.opt_present("c");
-    let force_overwite = matches.opt_present("y");
+    let to_file = matches.value_of("output-file");
+    let passphrase = matches.value_of("passphrase");
+    let checksum = !matches.is_present("checksum");
+    let force_overwite = matches.is_present("yes");
 
     let passhash = if let Some(ref pp) = passphrase{
         PassHashOffsetter::new(pp)
     }else{Default::default()};
 
-    let to: PathBuf = to_file
+    let to: PathBuf = to_file.map(|s| s.to_owned())
         .unwrap_or(file_path.to_owned() + mode.get_mode_standard_extension())
         // From `String` into `PathBuf`
         .into();
@@ -103,8 +110,8 @@ fn main() {
         (Encrypt, false) => encode_no_checksum(passhash, &mut f, &mut result_file).map_err(From::from),
         (Decrypt, true) => decode(passhash, &mut f, &mut result_file),
         (Decrypt, false) => {
-            println!("Checksum flag is only available when encrypting.\n");
-            return incorrect_syntax()
+            eprintln!("Checksum flag is only available when encrypting.\n");
+            return
         }
     };
 
@@ -118,22 +125,4 @@ fn main() {
             ChecksumMismatch => println!("Checksum mismatch detetected!\nPassphrase is probably incorrect."),
         },
     }
-}
-
-use std::path::PathBuf;
-use std::fs::File;
-
-const USAGE: &str = r#"Delta L encryption program
-
-Usage:
-    delta-l <MODE> <FILE> [OPTIONS]
-    delta-l -?
-
-Modes:
-    e[ncrypt]           Encrypts a file
-    d[ecrypt]           Decrypts a file"#;
-
-#[inline]
-fn incorrect_syntax(){
-    println!("Incorrect syntax:\n    Type delta-l -? for help")
 }
