@@ -1,16 +1,23 @@
 [package]
 name = "delta-l"
-version = "2.4.1"
+description = "Delta L encryption program"
+version = "2.4.2"
 authors = ["LFalch <lucas@wasd.dk>"]
 edition = "2018"
 
 [features]
 nightly = []
 
-[dependencies]
-getopts = "0.2"
-siphasher = "0.3"
-
 [[bin]]
-  name = "delta-l"
-  doc = false
+doc = false
+name = "delta-l"
+required-features = ["clap"]
+
+[dependencies]
+siphasher = "0.3"
+byteorder = "0.5"
+
+[dependencies.clap]
+version = "2"
+features = ["color"]
+optional = true
