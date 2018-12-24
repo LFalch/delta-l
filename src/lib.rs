@@ -84,22 +84,22 @@ impl Offset for ZeroOffset {
 
 #[derive(Debug, Clone)]
 /// A `Write`r that writes each byte according to the delta encoding
-pub struct DeltaWrite<T: Write, O: Offset> {
+pub struct DeltaWriter<T: Write, O: Offset> {
     last: u8,
     inner: T,
     offsetter: O
 }
 
-impl<T: Write> DeltaWrite<T, ZeroOffset> {
-    /// Returns a `DeltaWrite` without offsetting
+impl<T: Write> DeltaWriter<T, ZeroOffset> {
+    /// Returns a [`DeltaWriter`] without offsetting
     #[inline]
     pub fn new(inner: T) -> Self {
         Self::with_offsetter(inner, ZeroOffset)
     }
 }
 
-impl<T: Write, O: Offset> DeltaWrite<T, O> {
-    /// Returns a `DeltaWrite`r with a given `Offsetter`
+impl<T: Write, O: Offset> DeltaWriter<T, O> {
+    /// Returns a [`DeltaWriter`] with a given [`Offset`]ter
     #[inline]
     pub fn with_offsetter(inner: T, offsetter: O) -> Self {
         Self {
@@ -116,7 +116,7 @@ impl<T: Write, O: Offset> DeltaWrite<T, O> {
     }
 }
 
-impl<T: Write, O: Offset> Write for DeltaWrite<T, O> {
+impl<T: Write, O: Offset> Write for DeltaWriter<T, O> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let mut total_len = 0;
         for &b in buf {
@@ -150,22 +150,22 @@ impl<T: Write, O: Offset> Write for DeltaWrite<T, O> {
 
 #[derive(Debug, Clone)]
 /// A `Read`er that reads each byte according to the delta encoding
-pub struct DeltaRead<T: Read, O: Offset> {
+pub struct DeltaReader<T: Read, O: Offset> {
     last: u8,
     inner: T,
     offsetter: O,
 }
 
-impl<T: Read> DeltaRead<T, ZeroOffset> {
-    /// Returns a `DeltaRead` without offsetting
+impl<T: Read> DeltaReader<T, ZeroOffset> {
+    /// Returns a [`DeltaReader`] without offsetting
     #[inline]
     pub fn new(inner: T) -> Self {
         Self::with_offsetter(inner, ZeroOffset)
     }
 }
 
-impl<T: Read, O: Offset> DeltaRead<T, O> {
-    /// Returns a `DeltaRead`er with a given `Offsetter`
+impl<T: Read, O: Offset> DeltaReader<T, O> {
+    /// Returns a [`DeltaReader`] with a given [`Offset`]ter
     #[inline]
     pub fn with_offsetter(inner: T, offsetter: O) -> Self {
         Self {
@@ -182,7 +182,7 @@ impl<T: Read, O: Offset> DeltaRead<T, O> {
     }
 }
 
-impl<T: Read, O: Offset> Read for DeltaRead<T, O> {
+impl<T: Read, O: Offset> Read for DeltaReader<T, O> {
     #[inline]
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let n = self.inner.read(buf)?;

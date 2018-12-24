@@ -10,7 +10,7 @@ use std::fmt;
 use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::error::Error as ErrorTrait;
 
-use crate::{Offset, DeltaWrite, DeltaRead};
+use crate::{Offset, DeltaWriter, DeltaReader};
 
 /// Result alias for convenience
 pub type Result = std::result::Result<(), Error>;
@@ -60,7 +60,7 @@ impl From<io::Error> for Error{
 pub fn encode_no_checksum<O: Offset, R: Read, W: Write>(offsetter: O, src: &mut R, dest: &mut W) -> Result{
     // Write header (Δl\n)
     dest.write_all(b"\xCE\x94l\n")?;
-    let mut dest = DeltaWrite::with_offsetter(dest, offsetter);
+    let mut dest = DeltaWriter::with_offsetter(dest, offsetter);
 
     io::copy(src, &mut dest)?;
     dest.flush().map_err(Into::into)
@@ -73,7 +73,7 @@ pub fn encode_with_checksum<O: Offset, R: Read, W: Write + Seek>(offsetter: O, s
     dest.write_all(b"HASHCODE")?;
 
     let mut src = HashingRead::new(src);
-    let mut dest = DeltaWrite::with_offsetter(dest, offsetter);
+    let mut dest = DeltaWriter::with_offsetter(dest, offsetter);
     io::copy(&mut src, &mut dest)?;
     dest.flush()?;
     let (_, hash) = src.into_inner();
@@ -110,7 +110,7 @@ pub fn decode<O: Offset, R: Read, W: Write>(offsetter: O, src: &mut R, dest: &mu
 }
 
 fn decode_with_checksum<O: Offset, R: Read, W: Write>(offsetter: O, checksum: u64, src: &mut R, dest: &mut W) -> Result {
-    let mut src = DeltaRead::with_offsetter(src, offsetter);
+    let mut src = DeltaReader::with_offsetter(src, offsetter);
     let mut dest = HashingWrite::new(dest);
 
     io::copy(&mut src, &mut dest)?;
@@ -124,7 +124,7 @@ fn decode_with_checksum<O: Offset, R: Read, W: Write>(offsetter: O, checksum: u6
 }
 
 fn decode_no_checksum<O: Offset, R: Read, W: Write>(offsetter: O, src: &mut R, dest: &mut W) -> Result {
-    let mut src = DeltaRead::with_offsetter(src, offsetter);
+    let mut src = DeltaReader::with_offsetter(src, offsetter);
     io::copy(&mut src, dest)?;
     dest.flush().map_err(Into::into)
 }
